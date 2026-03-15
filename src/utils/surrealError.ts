@@ -1,5 +1,5 @@
 import { isProductionEnvironment, safeJsonStringify, sanitizeErrorMessage, truncateMessage } from './helpers.ts'
-import { SurrealDbError } from 'surrealdb'
+import { SurrealError } from 'surrealdb'
 
 /**
  * Interface for SurQl error issues
@@ -13,7 +13,7 @@ export interface SurQlErrorJson {
 /**
  * Class for SurQl errors
  */
-export class SurQlError extends SurrealDbError {
+export class SurQlError extends SurrealError {
   constructor(message: string) {
     super(message)
     this.name = 'SurQlError'

@@ -6,11 +6,8 @@ import { SurrealConnectionManager } from '../auth/connection.ts'
 import type {
   DatabaseCredentials,
   NamespaceCredentials,
+  RecordCredentials,
   RootCredentials,
-  ScopeCredentials,
-  // AuthCredentials,
-  // AuthToken,
-  // SessionInfo,
   SignupData,
 } from '../auth/types.ts'
 import {
@@ -19,7 +16,6 @@ import {
   InsufficientPermissionsError,
   InvalidCredentialsError,
   InvalidTokenError,
-  ScopeAuthenticationError,
   SessionExpiredError,
   SignupError,
 } from '../auth/errors.ts'
@@ -41,8 +37,8 @@ const createMockJWT = (exp: number, id: string = 'user:123') => {
   return `${header}.${payload}.${signature}`
 }
 
-const futureJWTExp = Math.floor(Date.now() / 1000) + 3600 // 1 hour from now
-const pastJWTExp = Math.floor(Date.now() / 1000) - 3600 // 1 hour ago
+const futureJWTExp = Math.floor(Date.now() / 1000) + 3600
+const pastJWTExp = Math.floor(Date.now() / 1000) - 3600
 
 const validJWT = createMockJWT(futureJWTExp)
 const expiredJWT = createMockJWT(pastJWTExp)
@@ -113,20 +109,6 @@ describe('Authentication Error Classes', () => {
       assertEquals(error.name, 'SignupError')
     })
   })
-
-  describe('ScopeAuthenticationError', () => {
-    it('should create scope auth error with default message', () => {
-      const error = new ScopeAuthenticationError('user')
-      assertEquals(error.message, 'Authentication failed for scope: user')
-      assertEquals(error.code, 'SCOPE_AUTH_FAILED')
-    })
-
-    it('should create scope auth error with custom message', () => {
-      const error = new ScopeAuthenticationError('user', 'Custom error message')
-      assertEquals(error.message, 'Custom error message')
-      assertEquals(error.code, 'SCOPE_AUTH_FAILED')
-    })
-  })
 })
 
 describe('SurrealConnectionManager Authentication', () => {
@@ -148,9 +130,9 @@ describe('SurrealConnectionManager Authentication', () => {
       try {
         const token = await connectionManager.signin(rootCredentials)
 
-        assert(token.token)
+        assert(token.access)
         assert(token.expires instanceof Date)
-        assertEquals(typeof token.token, 'string')
+        assertEquals(typeof token.access, 'string')
       } finally {
         connectionStub.restore()
       }
@@ -179,7 +161,7 @@ describe('SurrealConnectionManager Authentication', () => {
       try {
         const token = await connectionManager.signin(namespaceCredentials)
 
-        assert(token.token)
+        assert(token.access)
         assert(token.expires instanceof Date)
       } finally {
         connectionStub.restore()
@@ -211,22 +193,24 @@ describe('SurrealConnectionManager Authentication', () => {
       try {
         const token = await connectionManager.signin(databaseCredentials)
 
-        assert(token.token)
+        assert(token.access)
         assert(token.expires instanceof Date)
       } finally {
         connectionStub.restore()
       }
     })
 
-    it('should signin with scope credentials', async () => {
+    it('should signin with record credentials', async () => {
       const connectionManager = new SurrealConnectionManager(testConfig)
-      const scopeCredentials: ScopeCredentials = {
-        type: 'scope',
+      const recordCredentials: RecordCredentials = {
+        type: 'record',
         namespace: 'myapp',
         database: 'production',
-        scope: 'user',
-        email: 'john@example.com',
-        password: 'userpass',
+        access: 'user_access',
+        variables: {
+          email: 'john@example.com',
+          password: 'userpass',
+        },
       }
 
       const mockDB = {
@@ -234,9 +218,9 @@ describe('SurrealConnectionManager Authentication', () => {
         signin: (params: any) => {
           assertEquals(params.namespace, 'myapp')
           assertEquals(params.database, 'production')
-          assertEquals(params.scope, 'user')
-          assertEquals(params.email, 'john@example.com')
-          assertEquals(params.password, 'userpass')
+          assertEquals(params.access, 'user_access')
+          assertEquals(params.variables.email, 'john@example.com')
+          assertEquals(params.variables.password, 'userpass')
           return Promise.resolve(validJWT)
         },
       } as unknown as Surreal
@@ -244,9 +228,9 @@ describe('SurrealConnectionManager Authentication', () => {
       const connectionStub = stub(connectionManager, 'getConnection', () => Promise.resolve(mockDB))
 
       try {
-        const token = await connectionManager.signin(scopeCredentials)
+        const token = await connectionManager.signin(recordCredentials)
 
-        assert(token.token)
+        assert(token.access)
         assert(token.expires instanceof Date)
       } finally {
         connectionStub.restore()
@@ -262,7 +246,7 @@ describe('SurrealConnectionManager Authentication', () => {
       }
 
       const mockDB = {
-        signin: () => Promise.resolve(null), // Invalid credentials return null
+        signin: () => Promise.resolve(null),
       } as unknown as Surreal
 
       const connectionStub = stub(connectionManager, 'getConnection', () => Promise.resolve(mockDB))
@@ -327,15 +311,17 @@ describe('SurrealConnectionManager Authentication', () => {
   })
 
   describe('signup()', () => {
-    it('should signup new scope user', async () => {
+    it('should signup new record user', async () => {
       const connectionManager = new SurrealConnectionManager(testConfig)
       const signupData: SignupData = {
         namespace: 'myapp',
         database: 'production',
-        scope: 'user',
-        email: 'jane@example.com',
-        password: 'newpassword',
-        name: 'Jane Doe',
+        access: 'user_access',
+        variables: {
+          email: 'jane@example.com',
+          password: 'newpassword',
+          name: 'Jane Doe',
+        },
       }
 
       const mockDB = {
@@ -343,9 +329,9 @@ describe('SurrealConnectionManager Authentication', () => {
         signup: (params: any) => {
           assertEquals(params.namespace, 'myapp')
           assertEquals(params.database, 'production')
-          assertEquals(params.scope, 'user')
-          assertEquals(params.email, 'jane@example.com')
-          assertEquals(params.name, 'Jane Doe')
+          assertEquals(params.access, 'user_access')
+          assertEquals(params.variables.email, 'jane@example.com')
+          assertEquals(params.variables.name, 'Jane Doe')
           return Promise.resolve(validJWT)
         },
       } as unknown as Surreal
@@ -355,7 +341,7 @@ describe('SurrealConnectionManager Authentication', () => {
       try {
         const token = await connectionManager.signup(signupData)
 
-        assert(token.token)
+        assert(token.access)
         assert(token.expires instanceof Date)
       } finally {
         connectionStub.restore()
@@ -367,13 +353,15 @@ describe('SurrealConnectionManager Authentication', () => {
       const signupData: SignupData = {
         namespace: 'myapp',
         database: 'production',
-        scope: 'user',
-        email: 'existing@example.com',
-        password: 'password',
+        access: 'user_access',
+        variables: {
+          email: 'existing@example.com',
+          password: 'password',
+        },
       }
 
       const mockDB = {
-        signup: () => Promise.resolve(null), // Signup failure
+        signup: () => Promise.resolve(null),
       } as unknown as Surreal
 
       const connectionStub = stub(connectionManager, 'getConnection', () => Promise.resolve(mockDB))
@@ -394,9 +382,11 @@ describe('SurrealConnectionManager Authentication', () => {
       const signupData: SignupData = {
         namespace: 'myapp',
         database: 'production',
-        scope: 'user',
-        email: 'test@example.com',
-        password: 'password',
+        access: 'user_access',
+        variables: {
+          email: 'test@example.com',
+          password: 'password',
+        },
       }
 
       const mockDB = {
@@ -432,7 +422,7 @@ describe('SurrealConnectionManager Authentication', () => {
         const sessionInfo = await connectionManager.authenticate(validJWT)
 
         assertEquals(sessionInfo.id, 'user:123')
-        assertEquals(sessionInfo.type, 'scope')
+        assertEquals(sessionInfo.type, 'record')
         assert(sessionInfo.expires instanceof Date)
       } finally {
         connectionStub.restore()
@@ -489,7 +479,6 @@ describe('SurrealConnectionManager Authentication', () => {
       try {
         await connectionManager.invalidate()
 
-        // Verify auth state is cleared
         assertEquals(connectionManager.isAuthenticated(), false)
         assertEquals(connectionManager.getCurrentToken(), null)
       } finally {
@@ -520,7 +509,6 @@ describe('SurrealConnectionManager Authentication', () => {
   describe('info()', () => {
     it('should return session info when authenticated', async () => {
       const connectionManager = new SurrealConnectionManager(testConfig)
-      // First signin to establish session
       const credentials: RootCredentials = {
         type: 'root',
         username: 'root',
@@ -556,7 +544,6 @@ describe('SurrealConnectionManager Authentication', () => {
 
     it('should throw SessionExpiredError when session is expired', async () => {
       const connectionManager = new SurrealConnectionManager(testConfig)
-      // Mock an expired session
       const credentials: RootCredentials = {
         type: 'root',
         username: 'root',
@@ -657,7 +644,7 @@ describe('SurrealConnectionManager Authentication', () => {
         const currentToken = connectionManager.getCurrentToken()
 
         assert(currentToken)
-        assertEquals(currentToken.token, signinToken.token)
+        assertEquals(currentToken.access, signinToken.access)
         assertEquals(currentToken.expires?.getTime(), signinToken.expires?.getTime())
       } finally {
         connectionStub.restore()
@@ -684,7 +671,7 @@ describe('SurQLClient Authentication Integration', () => {
 
       try {
         const token = await client.signin(credentials)
-        assert(token.token)
+        assert(token.access)
         assert(token.expires instanceof Date)
       } finally {
         connectionStub.restore()
@@ -697,9 +684,11 @@ describe('SurQLClient Authentication Integration', () => {
       const signupData: SignupData = {
         namespace: 'myapp',
         database: 'production',
-        scope: 'user',
-        email: 'test@example.com',
-        password: 'password',
+        access: 'user_access',
+        variables: {
+          email: 'test@example.com',
+          password: 'password',
+        },
       }
 
       const mockDB = {
@@ -710,7 +699,7 @@ describe('SurQLClient Authentication Integration', () => {
 
       try {
         const token = await client.signup(signupData)
-        assert(token.token)
+        assert(token.access)
         assert(token.expires instanceof Date)
       } finally {
         connectionStub.restore()
@@ -729,7 +718,7 @@ describe('SurQLClient Authentication Integration', () => {
       try {
         const sessionInfo = await client.authenticate(validJWT)
         assertEquals(sessionInfo.id, 'user:123')
-        assertEquals(sessionInfo.type, 'scope')
+        assertEquals(sessionInfo.type, 'record')
       } finally {
         connectionStub.restore()
         await client.close()
@@ -755,7 +744,6 @@ describe('SurQLClient Authentication Integration', () => {
 
     it('should expose info method', async () => {
       const client = new SurQLClient(testConfig)
-      // Setup authenticated session first
       const credentials: RootCredentials = {
         type: 'root',
         username: 'root',
@@ -801,13 +789,15 @@ describe('SurQLClient Authentication Integration', () => {
   describe('authentication flow integration', () => {
     it('should maintain authentication state across operations', async () => {
       const client = new SurQLClient(testConfig)
-      const credentials: ScopeCredentials = {
-        type: 'scope',
+      const credentials: RecordCredentials = {
+        type: 'record',
         namespace: 'myapp',
         database: 'production',
-        scope: 'user',
-        email: 'user@example.com',
-        password: 'password',
+        access: 'user_access',
+        variables: {
+          email: 'user@example.com',
+          password: 'password',
+        },
       }
 
       const mockDB = {
@@ -818,23 +808,19 @@ describe('SurQLClient Authentication Integration', () => {
       const connectionStub = stub(client, 'getConnection', () => Promise.resolve(mockDB))
 
       try {
-        // Sign in
         const token = await client.signin(credentials)
-        assert(token.token)
+        assert(token.access)
         assertEquals(client.isAuthenticated(), true)
 
-        // Perform authenticated operation
         const users = await client.query('users').execute()
         assert(Array.isArray(users))
 
-        // Check session info
         const info = await client.info()
-        assertEquals(info.type, 'scope')
+        assertEquals(info.type, 'record')
         assertEquals(info.namespace, 'myapp')
         assertEquals(info.database, 'production')
-        assertEquals(info.scope, 'user')
+        assertEquals(info.access, 'user_access')
 
-        // Sign out
         await client.invalidate()
         assertEquals(client.isAuthenticated(), false)
         assertEquals(client.getCurrentToken(), null)
@@ -864,7 +850,6 @@ describe('SurQLClient Authentication Integration', () => {
           InvalidCredentialsError,
         )
 
-        // Should still be unauthenticated
         assertEquals(client.isAuthenticated(), false)
         assertEquals(client.getCurrentToken(), null)
       } finally {

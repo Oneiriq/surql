@@ -1,19 +1,67 @@
-name: Publish to JSR
+name: Publish
 
 on:
-  workflow_call:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Publish target'
+        type: choice
+        options:
+          - jsr
+          - npm
+          - both
+        default: both
 
 jobs:
-  publish:
+  check:
+    uses: ./.github/workflows/check.yml
+
+  test:
+    uses: ./.github/workflows/test.yml
+
+  publish-jsr:
+    needs: [check, test]
+    if: >
+      github.event_name == 'release' ||
+      (github.event_name == 'workflow_dispatch' && (inputs.target == 'jsr' || inputs.target == 'both'))
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v4
-      - name: Use Deno
+      - name: Setup Deno
         uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
       - name: Publish to JSR
         run: deno publish
+
+  publish-npm:
+    needs: [check, test]
+    if: >
+      (github.event_name == 'release' && !github.event.release.prerelease) ||
+      (github.event_name == 'workflow_dispatch' && (inputs.target == 'npm' || inputs.target == 'both'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Build npm package
+        run: deno task build:npm
+      - name: Publish to npm
+        working-directory: ./npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

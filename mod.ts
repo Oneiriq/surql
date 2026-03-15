@@ -4,6 +4,7 @@ export * from './src/crud/mod.ts'
 export * from './src/utils/mod.ts'
 export * from './src/client.ts'
 export * from './src/constants.ts'
+export * from './src/types/mod.ts'
 
-/** SurrealDB Record ID type for convenience */
-export { RecordId, SurrealDbError } from 'surrealdb'
+/** SurrealDB v2 types for convenience */
+export { RecordId, SurrealError, Table } from 'surrealdb'

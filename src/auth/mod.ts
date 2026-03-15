@@ -1,6 +1,5 @@
 /**
  * SurQL authentication module exports
- * This module provides authentication and authorization functionalities for SurQL.
  */
 
 export { buildSigninParams, type ConnectionConfig, SurrealConnectionManager } from './connection.ts'
@@ -22,8 +21,8 @@ export type {
   DatabaseCredentials,
   EnhancedConnectionConfig,
   NamespaceCredentials,
+  RecordCredentials,
   RootCredentials,
-  ScopeCredentials,
   SessionInfo,
   SignupData,
 } from './types.ts'

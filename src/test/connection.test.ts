@@ -1,4 +1,4 @@
-import Surreal from 'surrealdb'
+import { Surreal } from 'surrealdb'
 import { assert, assertEquals, assertRejects } from '@std/assert'
 import { describe, it } from '@std/testing/bdd'
 import { stub } from '@std/testing/mock'
@@ -13,6 +13,31 @@ const testConfig: ConnectionConfig = {
   password: Deno.env.get('SURQL_TEST_PASSWORD') || 'testpass',
 }
 
+function makeJwt(expSeconds: number = Math.floor(Date.now() / 1000) + 3600): string {
+  const header = btoa(JSON.stringify({ typ: 'JWT', alg: 'HS256' }))
+  const payload = btoa(JSON.stringify({ exp: expSeconds, ID: 'test' }))
+  return `${header}.${payload}.signature`
+}
+
+// v2 signin returns Tokens { access, refresh? }
+function makeTokens(expSeconds?: number) {
+  return { access: makeJwt(expSeconds) }
+}
+
+// v2 prototype stubs: method signatures changed, so we cast the method name
+// to bypass strict overload checking in @std/testing/mock
+function stubSignin(expSeconds?: number) {
+  const proto = Surreal.prototype
+  // deno-lint-ignore no-explicit-any
+  return stub(proto, 'signin' as any, () => Promise.resolve(makeTokens(expSeconds)))
+}
+
+function stubUse() {
+  const proto = Surreal.prototype
+  // deno-lint-ignore no-explicit-any
+  return stub(proto, 'use' as any, () => Promise.resolve({ namespace: 'test', database: 'test' }))
+}
+
 describe('SurrealConnectionManager', () => {
   describe('constructor', () => {
     it('should create a new connection manager instance', () => {
@@ -24,17 +49,8 @@ describe('SurrealConnectionManager', () => {
   describe('getConnection()', () => {
     it('should establish connection and return Surreal instance', async () => {
       const connectStub = stub(Surreal.prototype, 'connect', () => Promise.resolve(true as const))
-      const signinStub = stub(
-        Surreal.prototype,
-        'signin',
-        () => {
-          // Create a proper JWT with valid header
-          const header = btoa(JSON.stringify({ typ: 'JWT', alg: 'HS256' }))
-          const payload = btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600, ID: 'test' }))
-          return Promise.resolve(`${header}.${payload}.signature`)
-        },
-      )
-      const useStub = stub(Surreal.prototype, 'use', () => Promise.resolve(true as const))
+      const signinStub = stubSignin()
+      const useStub = stubUse()
 
       try {
         const manager = new SurrealConnectionManager(testConfig)
@@ -49,15 +65,9 @@ describe('SurrealConnectionManager', () => {
 
     it('should reuse existing connection', async () => {
       const connectStub = stub(Surreal.prototype, 'connect', () => Promise.resolve(true as const))
-      // Use a future expiration time (year 2030)
-      const futureExp = Math.floor(Date.now() / 1000) + (10 * 365 * 24 * 60 * 60) // 10 years from now
-      const signinStub = stub(Surreal.prototype, 'signin', () => {
-        // Create a proper JWT with future expiration
-        const header = btoa(JSON.stringify({ typ: 'JWT', alg: 'HS256' }))
-        const payload = btoa(JSON.stringify({ exp: futureExp, ID: 'test' }))
-        return Promise.resolve(`${header}.${payload}.signature`)
-      })
-      const useStub = stub(Surreal.prototype, 'use', () => Promise.resolve(true as const))
+      const futureExp = Math.floor(Date.now() / 1000) + (10 * 365 * 24 * 60 * 60)
+      const signinStub = stubSignin(futureExp)
+      const useStub = stubUse()
 
       try {
         const manager = new SurrealConnectionManager(testConfig)
@@ -66,7 +76,7 @@ describe('SurrealConnectionManager', () => {
         const connection2 = await manager.getConnection()
 
         assertEquals(connection1, connection2)
-        assertEquals(connectStub.calls.length, 1) // Should only connect once
+        assertEquals(connectStub.calls.length, 1)
       } finally {
         connectStub.restore()
         signinStub.restore()
@@ -92,7 +102,8 @@ describe('SurrealConnectionManager', () => {
 
     it('should handle authentication errors', async () => {
       const connectStub = stub(Surreal.prototype, 'connect', () => Promise.resolve(true as const))
-      const signinStub = stub(Surreal.prototype, 'signin', () => Promise.reject(new Error('Auth failed')))
+      // deno-lint-ignore no-explicit-any
+      const signinStub = stub(Surreal.prototype, 'signin' as any, () => Promise.reject(new Error('Auth failed')))
 
       try {
         const manager = new SurrealConnectionManager(testConfig)
@@ -110,16 +121,9 @@ describe('SurrealConnectionManager', () => {
 
     it('should handle database selection errors', async () => {
       const connectStub = stub(Surreal.prototype, 'connect', () => Promise.resolve(true as const))
-      const signinStub = stub(
-        Surreal.prototype,
-        'signin',
-        () => {
-          const header = btoa(JSON.stringify({ typ: 'JWT', alg: 'HS256' }))
-          const payload = btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600, ID: 'test' }))
-          return Promise.resolve(`${header}.${payload}.signature`)
-        },
-      )
-      const useStub = stub(Surreal.prototype, 'use', () => Promise.reject(new Error('Database not found')))
+      const signinStub = stubSignin()
+      // deno-lint-ignore no-explicit-any
+      const useStub = stub(Surreal.prototype, 'use' as any, () => Promise.reject(new Error('Database not found')))
 
       try {
         const invalidConfig = { ...testConfig, database: 'nonexistent' }
@@ -139,21 +143,12 @@ describe('SurrealConnectionManager', () => {
 
     it('should handle concurrent connection requests', async () => {
       const connectStub = stub(Surreal.prototype, 'connect', () => Promise.resolve(true as const))
-      const signinStub = stub(
-        Surreal.prototype,
-        'signin',
-        () => {
-          const header = btoa(JSON.stringify({ typ: 'JWT', alg: 'HS256' }))
-          const payload = btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600, ID: 'test' }))
-          return Promise.resolve(`${header}.${payload}.signature`)
-        },
-      )
-      const useStub = stub(Surreal.prototype, 'use', () => Promise.resolve(true as const))
+      const signinStub = stubSignin()
+      const useStub = stubUse()
 
       try {
         const manager = new SurrealConnectionManager(testConfig)
 
-        // Make multiple concurrent connection requests
         const promises = [
           manager.getConnection(),
           manager.getConnection(),
@@ -162,10 +157,9 @@ describe('SurrealConnectionManager', () => {
 
         const connections = await Promise.all(promises)
 
-        // All should return the same connection instance
         assertEquals(connections[0], connections[1])
         assertEquals(connections[1], connections[2])
-        assertEquals(connectStub.calls.length, 1) // Should only connect once
+        assertEquals(connectStub.calls.length, 1)
       } finally {
         connectStub.restore()
         signinStub.restore()
@@ -177,25 +171,13 @@ describe('SurrealConnectionManager', () => {
   describe('close()', () => {
     it('should close existing connection', async () => {
       const connectStub = stub(Surreal.prototype, 'connect', () => Promise.resolve(true as const))
-      const signinStub = stub(
-        Surreal.prototype,
-        'signin',
-        () => {
-          const header = btoa(JSON.stringify({ typ: 'JWT', alg: 'HS256' }))
-          const payload = btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600, ID: 'test' }))
-          return Promise.resolve(`${header}.${payload}.signature`)
-        },
-      )
-      const useStub = stub(Surreal.prototype, 'use', () => Promise.resolve(true as const))
+      const signinStub = stubSignin()
+      const useStub = stubUse()
       const closeStub = stub(Surreal.prototype, 'close', () => Promise.resolve(true as const))
 
       try {
         const manager = new SurrealConnectionManager(testConfig)
-
-        // Establish connection first
         await manager.getConnection()
-
-        // Then close it
         await manager.close()
 
         assertEquals(closeStub.calls.length, 1)
@@ -209,33 +191,20 @@ describe('SurrealConnectionManager', () => {
 
     it('should handle closing when no connection exists', async () => {
       const manager = new SurrealConnectionManager(testConfig)
-
-      // Should not throw when closing non-existent connection
       await manager.close()
-      assert(true) // Test passes if no error thrown
+      assert(true)
     })
 
     it('should handle close errors gracefully', async () => {
       const connectStub = stub(Surreal.prototype, 'connect', () => Promise.resolve(true as const))
-      const signinStub = stub(
-        Surreal.prototype,
-        'signin',
-        () => {
-          const header = btoa(JSON.stringify({ typ: 'JWT', alg: 'HS256' }))
-          const payload = btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600, ID: 'test' }))
-          return Promise.resolve(`${header}.${payload}.signature`)
-        },
-      )
-      const useStub = stub(Surreal.prototype, 'use', () => Promise.resolve(true as const))
+      const signinStub = stubSignin()
+      const useStub = stubUse()
       const closeStub = stub(Surreal.prototype, 'close', () => Promise.reject(new Error('Close failed')))
 
       try {
         const manager = new SurrealConnectionManager(testConfig)
-
-        // Establish connection first
         await manager.getConnection()
 
-        // Close should handle errors gracefully
         await assertRejects(
           () => manager.close(),
           Error,
@@ -267,16 +236,8 @@ describe('SurrealConnectionManager', () => {
 
     it('should use provided namespace and database', async () => {
       const connectStub = stub(Surreal.prototype, 'connect', () => Promise.resolve(true as const))
-      const signinStub = stub(
-        Surreal.prototype,
-        'signin',
-        () => {
-          const header = btoa(JSON.stringify({ typ: 'JWT', alg: 'HS256' }))
-          const payload = btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600, ID: 'test' }))
-          return Promise.resolve(`${header}.${payload}.signature`)
-        },
-      )
-      const useStub = stub(Surreal.prototype, 'use', () => Promise.resolve(true as const))
+      const signinStub = stubSignin()
+      const useStub = stubUse()
 
       try {
         const customConfig: ConnectionConfig = {
@@ -288,7 +249,6 @@ describe('SurrealConnectionManager', () => {
         const manager = new SurrealConnectionManager(customConfig)
         await manager.getConnection()
 
-        // Verify use was called with correct namespace and database
         assertEquals(useStub.calls.length, 1)
         assertEquals(useStub.calls[0].args[0], {
           namespace: 'production',
@@ -303,16 +263,8 @@ describe('SurrealConnectionManager', () => {
 
     it('should use provided credentials', async () => {
       const connectStub = stub(Surreal.prototype, 'connect', () => Promise.resolve(true as const))
-      const signinStub = stub(
-        Surreal.prototype,
-        'signin',
-        () => {
-          const header = btoa(JSON.stringify({ typ: 'JWT', alg: 'HS256' }))
-          const payload = btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600, ID: 'test' }))
-          return Promise.resolve(`${header}.${payload}.signature`)
-        },
-      )
-      const useStub = stub(Surreal.prototype, 'use', () => Promise.resolve(true as const))
+      const signinStub = stubSignin()
+      const useStub = stubUse()
 
       try {
         const customConfig: ConnectionConfig = {
@@ -324,7 +276,6 @@ describe('SurrealConnectionManager', () => {
         const manager = new SurrealConnectionManager(customConfig)
         await manager.getConnection()
 
-        // Verify signin was called with correct credentials
         assertEquals(signinStub.calls.length, 1)
         assertEquals(signinStub.calls[0].args[0], {
           username: 'admin',
@@ -339,7 +290,7 @@ describe('SurrealConnectionManager', () => {
   })
 
   describe('error handling', () => {
-    it('should throw SurrealDbError for connection failures', async () => {
+    it('should throw SurrealError for connection failures', async () => {
       const connectStub = stub(Surreal.prototype, 'connect', () => Promise.reject(new Error('Network error')))
 
       try {
@@ -355,9 +306,11 @@ describe('SurrealConnectionManager', () => {
       }
     })
 
-    it('should throw SurrealDbError for authentication failures', async () => {
+    it('should throw SurrealError for authentication failures', async () => {
       const connectStub = stub(Surreal.prototype, 'connect', () => Promise.resolve(true as const))
-      const signinStub = stub(Surreal.prototype, 'signin', () => Promise.reject(new Error('Invalid credentials')))
+      const proto = Surreal.prototype
+      // deno-lint-ignore no-explicit-any
+      const signinStub = stub(proto, 'signin' as any, () => Promise.reject(new Error('Invalid credentials')))
 
       try {
         const manager = new SurrealConnectionManager(testConfig)
@@ -373,18 +326,10 @@ describe('SurrealConnectionManager', () => {
       }
     })
 
-    it('should throw SurrealDbError for close failures', async () => {
+    it('should throw SurrealError for close failures', async () => {
       const connectStub = stub(Surreal.prototype, 'connect', () => Promise.resolve(true as const))
-      const signinStub = stub(
-        Surreal.prototype,
-        'signin',
-        () => {
-          const header = btoa(JSON.stringify({ typ: 'JWT', alg: 'HS256' }))
-          const payload = btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600, ID: 'test' }))
-          return Promise.resolve(`${header}.${payload}.signature`)
-        },
-      )
-      const useStub = stub(Surreal.prototype, 'use', () => Promise.resolve(true as const))
+      const signinStub = stubSignin()
+      const useStub = stubUse()
       const closeStub = stub(Surreal.prototype, 'close', () => Promise.reject(new Error('Close error')))
 
       try {

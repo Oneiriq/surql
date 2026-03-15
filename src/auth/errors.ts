@@ -73,14 +73,3 @@ export class SignupError extends AuthenticationError {
     this.name = 'SignupError'
   }
 }
-
-/**
- * Error thrown when scope authentication fails
- */
-export class ScopeAuthenticationError extends AuthenticationError {
-  constructor(scope: string, message?: string) {
-    const errorMessage = message || `Authentication failed for scope: ${scope}`
-    super(errorMessage, 'SCOPE_AUTH_FAILED')
-    this.name = 'ScopeAuthenticationError'
-  }
-}

@@ -1,4 +1,4 @@
-import Surreal from 'surrealdb'
+import { type AnyAuth, Surreal } from 'surrealdb'
 import { assertArrayLength } from '../utils/asserts.ts'
 import { assertValidation, validateConnectionConfig } from '../utils/validators.ts'
 import { intoSurQlError } from '../utils/surrealError.ts'
@@ -12,31 +12,40 @@ import {
   SessionExpiredError,
   SignupError,
 } from './errors.ts'
-import type { AnyAuth } from 'surrealdb'
 
 /**
- * Build sign-in parameters from the authentication credentials
- * @param credentials - Authentication credentials object
- * @template T - Type of credentials (AuthCredentials)
- * @returns Record<string, unknown> - Sign-in parameters
+ * Extract the JWT access token string from the surrealdb v2 signin/signup result.
+ * v2 returns a Token object with { access, refresh? } for record users,
+ * or may return a string or void for root/ns/db users.
  */
-export function buildSigninParams<T extends AuthCredentials>(credentials: T): AnyAuth {
+function extractTokenString(result: unknown): string | undefined {
+  if (typeof result === 'string') return result
+  if (result && typeof result === 'object' && 'access' in result) {
+    return (result as { access: string }).access
+  }
+  return undefined
+}
+
+/**
+ * Build sign-in parameters from the authentication credentials for surrealdb v2.
+ * Root/namespace/database use flat params; record users use access + variables.
+ */
+export function buildSigninParams(credentials: AuthCredentials): Record<string, unknown> {
   const type = credentials.type
   const fields = SIGNIN_FIELDS_BY_TYPE[type]
   if (!fields) throw new InvalidCredentialsError()
 
-  // deno-lint-ignore no-explicit-any
-  let params = Object.fromEntries(fields.map((key) => [key, (credentials as any)[key]]))
-  if (type === 'scope') {
-    const extra = Object.entries(credentials)
-      .filter(([k]) => !fields.includes(k) && k !== 'type')
-      .reduce((obj, [k, v]) => {
-        obj[k] = v
-        return obj
-      }, {} as Record<string, unknown>)
-    params = { ...params, ...extra }
+  if (type === 'record') {
+    return {
+      namespace: credentials.namespace,
+      database: credentials.database,
+      access: credentials.access,
+      variables: credentials.variables,
+    }
   }
-  return params as AnyAuth
+
+  // deno-lint-ignore no-explicit-any
+  return Object.fromEntries(fields.map((key) => [key, (credentials as any)[key]]))
 }
 
 /**
@@ -62,9 +71,8 @@ interface SurrealJwt {
 }
 
 /**
- * Internal connection manager that handles SurrealDB connections
- * Uses singleton pattern per configuration to ensure connection reuse
- * Specifically, it handles authentication, session management, and token validation
+ * Internal connection manager that handles SurrealDB v2 connections.
+ * Manages authentication, session management, and token validation.
  */
 export class SurrealConnectionManager {
   private db: InstanceType<typeof Surreal> | null = null
@@ -74,15 +82,11 @@ export class SurrealConnectionManager {
   private readonly config: ConnectionConfig
   private readonly endpoint: string
 
-  // Authentication state management
   private authToken: AuthToken | null = null
   private sessionInfo: SessionInfo | null = null
   private currentCredentials: AuthCredentials | null = null
-  private autoRefresh: boolean = true
-  private tokenRefreshBuffer: number = 60_000 // 1 minute in milliseconds
 
   constructor(config: ConnectionConfig) {
-    // Validate connection configuration
     const validationResult = validateConnectionConfig(config)
     assertValidation(validationResult, 'Connection configuration validation')
 
@@ -94,12 +98,10 @@ export class SurrealConnectionManager {
    * Get a connection to SurrealDB, creating one if necessary
    */
   async getConnection(): Promise<Surreal> {
-    // If we have a valid connection, return it
     if (this.db && this.isConnected && this.isTokenValid()) {
       return this.db
     }
 
-    // If connection is in progress, wait for it
     if (this.connectionPromise) {
       try {
         return await this.connectionPromise
@@ -108,7 +110,6 @@ export class SurrealConnectionManager {
       }
     }
 
-    // Create new connection
     return this.connect()
   }
 
@@ -123,7 +124,6 @@ export class SurrealConnectionManager {
 
     try {
       const result = await this.connectionPromise
-      // Clear the connection promise once complete
       this.connectionPromise = null
       return result
     } catch (e) {
@@ -136,13 +136,8 @@ export class SurrealConnectionManager {
    * Perform the actual connection steps
    */
   private async performConnection(db: Surreal): Promise<Surreal> {
-    // Connect to SurrealDB
     await db.connect(this.endpoint)
-
-    // Sign in
     await this.performSignin(db)
-
-    // Use namespace and database
     await db.use({
       namespace: this.config.namespace,
       database: this.config.database,
@@ -153,17 +148,24 @@ export class SurrealConnectionManager {
   }
 
   /**
-   * Perform signin and handle token management
+   * Perform signin and handle token management.
+   * surrealdb v2 may return a Token object or void depending on auth level.
    */
   private async performSignin(db: Surreal): Promise<void> {
-    const token = await db.signin({
+    const result = await db.signin({
       username: this.config.username,
       password: this.config.password,
     })
 
+    const tokenStr = extractTokenString(result)
+    if (!tokenStr) {
+      // v2 root signin may not return a token; set a long expiry
+      this.expiresAt = Date.now() + 24 * 60 * 60 * 1_000
+      return
+    }
+
     try {
-      // Use the secure JWT validation
-      const { exp, ID: _ID } = await validateAndDecodeJWTPayload<SurrealJwt>(token)
+      const { exp } = await validateAndDecodeJWTPayload<SurrealJwt>(tokenStr)
       this.expiresAt = exp * 1_000
     } catch (e) {
       throw intoSurQlError('Invalid JWT token received from SurrealDB:', e)
@@ -174,40 +176,29 @@ export class SurrealConnectionManager {
    * Check if the current JWT token is still valid
    */
   private isTokenValid(): boolean {
-    return this.expiresAt > Date.now() + 60_000 // 1 minute buffer
+    return this.expiresAt > Date.now() + 60_000
   }
 
   /**
-   * Build a secure endpoint URL with proper validation
-   * @private
-   * @param config - Connection configuration
-   * @returns Validated endpoint URL
+   * Build a secure endpoint URL
    */
   private buildSecureEndpoint(config: ConnectionConfig): string {
-    // Determine protocol based on configuration
     let protocol = config.protocol || 'http'
 
-    // If SSL is explicitly enabled, use secure protocols
     if (config.useSSL) {
       protocol = protocol === 'ws' ? 'wss' : 'https'
     }
 
-    // Validate protocol
     const allowedProtocols = ['http', 'https', 'ws', 'wss']
     if (!allowedProtocols.includes(protocol)) {
       throw new Error(`Invalid protocol: ${protocol}. Allowed protocols: ${allowedProtocols.join(', ')}`)
     }
 
-    // Build URL with proper validation
     try {
       const baseUrl = `${protocol}://${config.host}:${config.port}`
-
-      // For HTTP/HTTPS protocols, add the RPC endpoint
       if (protocol === 'http' || protocol === 'https') {
         return `${baseUrl}/rpc`
       }
-
-      // For WebSocket protocols, return the base URL
       return baseUrl
     } catch (e) {
       throw intoSurQlError('Failed to construct connection endpoint:', e)
@@ -215,17 +206,17 @@ export class SurrealConnectionManager {
   }
 
   /**
-   * Sign in with user credentials
-   * @param credentials - Authentication credentials for different user types
-   * @returns Promise<AuthToken> - JWT token with expiration
+   * Sign in with user credentials.
+   * Handles v2 Token return format { access, refresh? }.
    */
   async signin(credentials: AuthCredentials): Promise<AuthToken> {
     try {
       const db = await this.getConnection()
       const signinParams = buildSigninParams(credentials)
 
-      const token = await db.signin(signinParams)
-      if (!token) {
+      const result = await db.signin(signinParams as AnyAuth)
+      const tokenStr = extractTokenString(result)
+      if (!tokenStr) {
         throw new InvalidCredentialsError()
       }
 
@@ -233,7 +224,13 @@ export class SurrealConnectionManager {
         const { exp, ID } = payload
         const expiresAt = new Date(exp * 1000)
 
-        this.authToken = { token, expires: expiresAt }
+        this.authToken = {
+          access: tokenStr,
+          refresh: (result && typeof result === 'object' && 'refresh' in result)
+            ? (result as { refresh?: string }).refresh
+            : undefined,
+          expires: expiresAt,
+        }
         this.expiresAt = exp * 1000
         this.currentCredentials = credentials
 
@@ -242,21 +239,20 @@ export class SurrealConnectionManager {
           type: credentials.type,
           namespace: 'namespace' in credentials ? credentials.namespace : undefined,
           database: 'database' in credentials ? credentials.database : undefined,
-          scope: 'scope' in credentials ? credentials.scope : undefined,
+          access: 'access' in credentials ? credentials.access : undefined,
           expires: expiresAt,
         }
 
         return this.authToken
       }
 
-      // Parse and validate JWT, handle expired tokens
       try {
-        const payload = await validateAndDecodeJWTPayload<SurrealJwt>(token)
+        const payload = await validateAndDecodeJWTPayload<SurrealJwt>(tokenStr)
         return setSession(payload)
       } catch (e) {
         if (e instanceof Error && e.message === 'JWT token has expired') {
           try {
-            const parts = token.split('.')
+            const parts = tokenStr.split('.')
             assertArrayLength({ input: parts, length: 3, context: 'JWT token parts' })
 
             const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')))
@@ -274,45 +270,46 @@ export class SurrealConnectionManager {
   }
 
   /**
-   * Sign up a new scope user
-   * @param data - User registration data including scope information
-   * @returns Promise<AuthToken> - JWT token for the new user
+   * Sign up a new record user.
+   * v2 uses access instead of scope, with variables wrapper.
    */
   async signup(data: SignupData): Promise<AuthToken> {
     try {
       const db = await this.getConnection()
 
-      // Create signup parameters with proper typing
       const signupParams = {
         namespace: data.namespace,
         database: data.database,
-        scope: data.scope,
-        ...Object.fromEntries(
-          Object.entries(data).filter(([key]) => !['namespace', 'database', 'scope'].includes(key)),
-        ),
+        access: data.access,
+        variables: data.variables,
       }
 
-      const token = await db.signup(signupParams)
+      const result = await db.signup(signupParams)
+      const tokenStr = extractTokenString(result)
 
-      if (!token) {
+      if (!tokenStr) {
         throw new SignupError('Signup failed - no token returned')
       }
 
-      // Parse and validate the JWT token
       try {
-        const { exp, ID } = await validateAndDecodeJWTPayload<SurrealJwt>(token)
+        const { exp, ID } = await validateAndDecodeJWTPayload<SurrealJwt>(tokenStr)
         const expiresAt = new Date(exp * 1000)
 
-        this.authToken = { token, expires: expiresAt }
+        this.authToken = {
+          access: tokenStr,
+          refresh: (result && typeof result === 'object' && 'refresh' in result)
+            ? (result as { refresh?: string }).refresh
+            : undefined,
+          expires: expiresAt,
+        }
         this.expiresAt = exp * 1000
 
-        // Create session info for new user
         this.sessionInfo = {
           id: ID,
-          type: 'scope',
+          type: 'record',
           namespace: data.namespace,
           database: data.database,
-          scope: data.scope,
+          access: data.access,
           expires: expiresAt,
         }
 
@@ -324,100 +321,81 @@ export class SurrealConnectionManager {
       if (e instanceof AuthenticationError) {
         throw e
       }
-      // Only throw SignupError for actual signup failures, not infrastructure errors
       if (
         e instanceof Error &&
         (e.message.includes('signup') || e.message.includes('user') || e.message.includes('email'))
       ) {
         throw new SignupError(`Signup operation failed: ${e.message}`)
       }
-      // Re-throw unexpected errors as-is to preserve test mocks
       throw e
     }
   }
 
   /**
    * Authenticate with an existing JWT token
-   * @param token - JWT token string
-   * @returns Promise<SessionInfo> - Current session information
    */
   async authenticate(token: string): Promise<SessionInfo> {
     try {
       const db = await this.getConnection()
 
-      // Authenticate with the provided token
       await db.authenticate(token)
 
-      // Parse and validate the JWT token
       const { exp, ID } = await validateAndDecodeJWTPayload<SurrealJwt>(token)
       const expiresAt = new Date(exp * 1000)
 
-      // Check if token is expired
       if (Date.now() >= exp * 1000) {
         throw new SessionExpiredError()
       }
 
-      this.authToken = { token, expires: expiresAt }
+      this.authToken = { access: token, expires: expiresAt }
       this.expiresAt = exp * 1000
 
-      // Create basic session info (detailed info would require additional queries)
       this.sessionInfo = {
         id: ID,
-        type: 'scope', // Default to scope, could be enhanced with token parsing
+        type: 'record',
         expires: expiresAt,
       }
 
       return this.sessionInfo
     } catch (e) {
-      // Let JWT validation errors (SessionExpiredError, InvalidTokenError) bubble up
       if (e instanceof SessionExpiredError || e instanceof InvalidTokenError) {
         throw e
       }
-      // Let other authentication errors bubble up
       if (e instanceof AuthenticationError) {
         throw e
       }
-      // Handle specific JWT expiration error from validateAndDecodeJWTPayload
       if (e instanceof Error && e.message === 'JWT token has expired') {
         throw new SessionExpiredError()
       }
-      // For malformed JWT that causes validateAndDecodeJWTPayload to fail
       throw new InvalidTokenError()
     }
   }
 
   /**
    * Invalidate the current session
-   * @returns Promise<void> - Session termination confirmation
    */
   async invalidate(): Promise<void> {
     try {
       const db = await this.getConnection()
-
-      // Invalidate the current session
       await db.invalidate()
 
-      // Clear local authentication state
       this.authToken = null
       this.sessionInfo = null
       this.currentCredentials = null
       this.expiresAt = 0
     } catch (_e) {
-      // Always convert errors to AuthenticationError for invalidate failures
       throw new AuthenticationError('Session invalidation failed', 'INVALIDATE_FAILED')
     }
   }
 
   /**
    * Get current authenticated user information
-   * @returns Promise<SessionInfo> - Current session details
    */
   async info(): Promise<SessionInfo> {
     if (!this.sessionInfo) {
       throw new AuthenticationError('No active session', 'NO_SESSION')
     }
 
-    // Check if session is expired
     if (this.sessionInfo.expires && Date.now() >= this.sessionInfo.expires.getTime()) {
       throw new SessionExpiredError()
     }
@@ -427,7 +405,6 @@ export class SurrealConnectionManager {
 
   /**
    * Check if current session is authenticated
-   * @returns boolean - Authentication status
    */
   isAuthenticated(): boolean {
     return this.authToken !== null && this.isTokenValid()
@@ -435,7 +412,6 @@ export class SurrealConnectionManager {
 
   /**
    * Get current authentication token
-   * @returns AuthToken | null - Current token or null if not authenticated
    */
   getCurrentToken(): AuthToken | null {
     return this.authToken
@@ -452,7 +428,6 @@ export class SurrealConnectionManager {
         this.isConnected = false
         this.expiresAt = 0
 
-        // Clear authentication state
         this.authToken = null
         this.sessionInfo = null
         this.currentCredentials = null

@@ -29,14 +29,14 @@ export interface DatabaseCredentials {
 }
 
 /**
- * Scope user credentials for scope-level access with custom fields
+ * Record user credentials for record-level access (v2: replaces scope)
  */
-export interface ScopeCredentials {
-  type: 'scope'
+export interface RecordCredentials {
+  type: 'record'
   namespace: string
   database: string
-  scope: string
-  [key: string]: unknown // User-defined fields for scope authentication
+  access: string
+  variables: Record<string, unknown>
 }
 
 /**
@@ -46,13 +46,14 @@ export type AuthCredentials =
   | RootCredentials
   | NamespaceCredentials
   | DatabaseCredentials
-  | ScopeCredentials
+  | RecordCredentials
 
 /**
- * JWT token structure returned by SurrealDB authentication
+ * JWT token structure returned by SurrealDB v2 authentication
  */
 export interface AuthToken {
-  token: string
+  access: string
+  refresh?: string
   expires?: Date
 }
 
@@ -61,22 +62,22 @@ export interface AuthToken {
  */
 export interface SessionInfo {
   id: string
-  type: 'root' | 'namespace' | 'database' | 'scope'
+  type: 'root' | 'namespace' | 'database' | 'record'
   namespace?: string
   database?: string
-  scope?: string
+  access?: string
   expires?: Date
   permissions?: string[]
 }
 
 /**
- * Signup data for creating new scope users
+ * Signup data for creating new record users (v2: replaces scope)
  */
 export interface SignupData {
   namespace: string
   database: string
-  scope: string
-  [key: string]: unknown // User-defined fields for scope registration
+  access: string
+  variables: Record<string, unknown>
 }
 
 /**
@@ -87,11 +88,11 @@ export interface EnhancedConnectionConfig {
   port: string
   namespace: string
   database: string
-  username?: string // For token-based auth
-  password?: string // For token-based auth
+  username?: string
+  password?: string
   useSSL?: boolean
-  protocol?: 'http' | 'https' | 'ws' | 'wss' // SurrealDB supports these protocols
+  protocol?: 'http' | 'https' | 'ws' | 'wss'
   authToken?: string
   autoRefresh?: boolean
-  tokenRefreshBuffer?: number // Minutes before expiry to refresh
+  tokenRefreshBuffer?: number
 }

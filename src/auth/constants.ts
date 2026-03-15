@@ -4,5 +4,5 @@ export const SIGNIN_FIELDS_BY_TYPE: Record<AuthCredentials['type'], readonly str
   root: ['username', 'password'],
   namespace: ['namespace', 'username', 'password'],
   database: ['namespace', 'database', 'username', 'password'],
-  scope: ['namespace', 'database', 'scope'],
+  record: ['namespace', 'database', 'access'],
 } as const

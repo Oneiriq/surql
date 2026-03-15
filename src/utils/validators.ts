@@ -3,7 +3,7 @@
  * This module provides functions to validate various inputs such as field names, table names, connection configurations
  * and query values to prevent injection attacks and data leakage.
  */
-import { $ZodError } from '@zod/core'
+import { $ZodError } from 'zod/v4/core'
 import { intoZodError, ZodValidationError } from './zodError.ts'
 import { isArray, isFunction, isObject, isPrimitiveOrNullish, isString } from './helpers.ts'
 import { PATTERNS } from '../constants.ts'

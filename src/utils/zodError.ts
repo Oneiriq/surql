@@ -1,5 +1,5 @@
 import { PATTERNS } from '../constants.ts'
-import { $ZodError, type $ZodIssue } from '@zod/core'
+import { $ZodError, type $ZodIssue } from 'zod/v4/core'
 
 interface ZodMappingErrorJSON {
   name: string
