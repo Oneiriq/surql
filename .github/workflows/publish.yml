@@ -45,6 +45,7 @@ jobs:
       (github.event_name == 'release' && !github.event.release.prerelease) ||
       (github.event_name == 'workflow_dispatch' && (inputs.target == 'npm' || inputs.target == 'both'))
     runs-on: ubuntu-latest
+    environment: publish
     permissions:
       contents: read
     steps:
