@@ -1,6 +1,24 @@
 import { assertEquals, assertThrows } from '@std/assert'
 import { describe, it } from '@std/testing/bdd'
-import { and_, contains, eq, gt, gte, lt, lte, ne, not_, or_ } from '../types/operators.ts'
+import {
+  and_,
+  contains,
+  containsAll,
+  containsAny,
+  containsNot,
+  eq,
+  gt,
+  gte,
+  inside,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  ne,
+  not_,
+  notInside,
+  or_,
+} from '../types/operators.ts'
 
 describe('operators', () => {
   describe('eq()', () => {
@@ -95,6 +113,62 @@ describe('operators', () => {
       const expr = contains('tags', 'premium')
       assertEquals(expr.operator, 'CONTAINS')
       assertEquals(expr.toSurQL(), "tags CONTAINS 'premium'")
+    })
+  })
+
+  describe('containsNot()', () => {
+    it('should create CONTAINSNOT expression', () => {
+      const expr = containsNot('tags', 'banned')
+      assertEquals(expr.operator, 'CONTAINSNOT')
+      assertEquals(expr.toSurQL(), "tags CONTAINSNOT 'banned'")
+    })
+  })
+
+  describe('containsAll()', () => {
+    it('should create CONTAINSALL expression with array', () => {
+      const expr = containsAll('tags', ['a', 'b'])
+      assertEquals(expr.operator, 'CONTAINSALL')
+      assertEquals(expr.toSurQL(), "tags CONTAINSALL ['a', 'b']")
+    })
+  })
+
+  describe('containsAny()', () => {
+    it('should create CONTAINSANY expression with array', () => {
+      const expr = containsAny('roles', ['admin', 'mod'])
+      assertEquals(expr.operator, 'CONTAINSANY')
+      assertEquals(expr.toSurQL(), "roles CONTAINSANY ['admin', 'mod']")
+    })
+  })
+
+  describe('inside()', () => {
+    it('should create INSIDE expression', () => {
+      const expr = inside('status', 'active')
+      assertEquals(expr.operator, 'INSIDE')
+      assertEquals(expr.toSurQL(), "status INSIDE 'active'")
+    })
+  })
+
+  describe('notInside()', () => {
+    it('should create NOTINSIDE expression', () => {
+      const expr = notInside('role', 'banned')
+      assertEquals(expr.operator, 'NOTINSIDE')
+      assertEquals(expr.toSurQL(), "role NOTINSIDE 'banned'")
+    })
+  })
+
+  describe('isNull()', () => {
+    it('should create IS NONE expression', () => {
+      const expr = isNull('deleted_at')
+      assertEquals(expr.operator, 'IS')
+      assertEquals(expr.toSurQL(), 'deleted_at IS NONE')
+    })
+  })
+
+  describe('isNotNull()', () => {
+    it('should create IS NOT NONE expression', () => {
+      const expr = isNotNull('email')
+      assertEquals(expr.operator, 'IS NOT')
+      assertEquals(expr.toSurQL(), 'email IS NOT NONE')
     })
   })
 

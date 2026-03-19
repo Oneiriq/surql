@@ -667,7 +667,8 @@ describe('SurQLClient Authentication Integration', () => {
         signin: () => Promise.resolve(validJWT),
       } as unknown as Surreal
 
-      const connectionStub = stub(client, 'getConnection', () => Promise.resolve(mockDB))
+      // deno-lint-ignore no-explicit-any
+      const connectionStub = stub((client as any).connectionManager, 'getConnection', () => Promise.resolve(mockDB))
 
       try {
         const token = await client.signin(credentials)
@@ -695,7 +696,8 @@ describe('SurQLClient Authentication Integration', () => {
         signup: () => Promise.resolve(validJWT),
       } as unknown as Surreal
 
-      const connectionStub = stub(client, 'getConnection', () => Promise.resolve(mockDB))
+      // deno-lint-ignore no-explicit-any
+      const connectionStub = stub((client as any).connectionManager, 'getConnection', () => Promise.resolve(mockDB))
 
       try {
         const token = await client.signup(signupData)
@@ -713,7 +715,8 @@ describe('SurQLClient Authentication Integration', () => {
         authenticate: () => Promise.resolve(),
       } as unknown as Surreal
 
-      const connectionStub = stub(client, 'getConnection', () => Promise.resolve(mockDB))
+      // deno-lint-ignore no-explicit-any
+      const connectionStub = stub((client as any).connectionManager, 'getConnection', () => Promise.resolve(mockDB))
 
       try {
         const sessionInfo = await client.authenticate(validJWT)
@@ -731,7 +734,8 @@ describe('SurQLClient Authentication Integration', () => {
         invalidate: () => Promise.resolve(),
       } as unknown as Surreal
 
-      const connectionStub = stub(client, 'getConnection', () => Promise.resolve(mockDB))
+      // deno-lint-ignore no-explicit-any
+      const connectionStub = stub((client as any).connectionManager, 'getConnection', () => Promise.resolve(mockDB))
 
       try {
         await client.invalidate()
@@ -754,7 +758,8 @@ describe('SurQLClient Authentication Integration', () => {
         signin: () => Promise.resolve(validJWT),
       } as unknown as Surreal
 
-      const connectionStub = stub(client, 'getConnection', () => Promise.resolve(mockDB))
+      // deno-lint-ignore no-explicit-any
+      const connectionStub = stub((client as any).connectionManager, 'getConnection', () => Promise.resolve(mockDB))
 
       try {
         await client.signin(credentials)
@@ -803,9 +808,11 @@ describe('SurQLClient Authentication Integration', () => {
       const mockDB = {
         signin: () => Promise.resolve(validJWT),
         query: () => Promise.resolve([[]]),
+        invalidate: () => Promise.resolve(),
       } as unknown as Surreal
 
-      const connectionStub = stub(client, 'getConnection', () => Promise.resolve(mockDB))
+      // deno-lint-ignore no-explicit-any
+      const connectionStub = stub((client as any).connectionManager, 'getConnection', () => Promise.resolve(mockDB))
 
       try {
         const token = await client.signin(credentials)
@@ -842,7 +849,8 @@ describe('SurQLClient Authentication Integration', () => {
         signin: () => Promise.resolve(null),
       } as unknown as Surreal
 
-      const connectionStub = stub(client, 'getConnection', () => Promise.resolve(mockDB))
+      // deno-lint-ignore no-explicit-any
+      const connectionStub = stub((client as any).connectionManager, 'getConnection', () => Promise.resolve(mockDB))
 
       try {
         await assertRejects(

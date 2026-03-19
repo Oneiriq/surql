@@ -93,6 +93,41 @@ export function contains(field: string, value: unknown): OperatorExpression {
   return createExpression(field, 'CONTAINS', value)
 }
 
+/** Does not contain */
+export function containsNot(field: string, value: unknown): OperatorExpression {
+  return createExpression(field, 'CONTAINSNOT', value)
+}
+
+/** Contains all elements */
+export function containsAll(field: string, value: unknown[]): OperatorExpression {
+  return createExpression(field, 'CONTAINSALL', value)
+}
+
+/** Contains any element */
+export function containsAny(field: string, value: unknown[]): OperatorExpression {
+  return createExpression(field, 'CONTAINSANY', value)
+}
+
+/** Inside */
+export function inside(field: string, value: unknown): OperatorExpression {
+  return createExpression(field, 'INSIDE', value)
+}
+
+/** Not inside */
+export function notInside(field: string, value: unknown): OperatorExpression {
+  return createExpression(field, 'NOTINSIDE', value)
+}
+
+/** Is null / NONE */
+export function isNull(field: string): OperatorExpression {
+  return createExpression(field, 'IS', null)
+}
+
+/** Is not null */
+export function isNotNull(field: string): OperatorExpression {
+  return createExpression(field, 'IS NOT', null)
+}
+
 /** Combine expressions with AND */
 export function and_(...expressions: OperatorExpression[]): string {
   return expressions.map((e) => e.toSurQL()).join(' AND ')

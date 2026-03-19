@@ -2,6 +2,9 @@
 
 import { build, emptyDir } from 'jsr:@deno/dnt@0.42.3'
 
+const denoJson = JSON.parse(await Deno.readTextFile('./deno.json'))
+const version: string = Deno.args[0] || denoJson.version || '0.0.0'
+
 await emptyDir('./npm')
 
 await build({
@@ -12,7 +15,7 @@ await build({
   },
   package: {
     name: '@oneiriq/surql',
-    version: Deno.args[0] || '0.4.0',
+    version,
     description: 'A modern, type-safe query builder for SurrealDB designed for Deno and Node.js',
     license: 'MIT',
     author: {
