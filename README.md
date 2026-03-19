@@ -93,6 +93,10 @@ Full documentation and API reference in the **[Changelog](./CHANGELOG.md)**.
 
 MIT - see [LICENSE](LICENSE).
 
+## Python
+
+Looking for SurrealDB tooling in Python? Check out **[surql-py](https://github.com/Oneiriq/surql-py)** -- a code-first schema, migration, and query toolkit for SurrealDB built for Python 3.12+.
+
 ## Support
 
 - Issues: [GitHub Issues](https://github.com/Oneiriq/surql/issues)
