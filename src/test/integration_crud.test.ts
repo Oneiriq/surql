@@ -16,19 +16,8 @@ import {
   queryRecords,
   upsertRecord,
 } from '../query/crud.ts'
-import {
-  createTyped,
-  getTyped,
-  queryTyped,
-  updateTyped,
-  upsertTyped,
-} from '../query/typed.ts'
-import {
-  deleteMany,
-  insertMany,
-  relateMany,
-  upsertMany,
-} from '../query/batch.ts'
+import { createTyped, getTyped, queryTyped, updateTyped, upsertTyped } from '../query/typed.ts'
+import { deleteMany, insertMany, relateMany, upsertMany } from '../query/batch.ts'
 import {
   countRelated,
   createRelation,
@@ -39,16 +28,8 @@ import {
   removeRelation,
 } from '../query/graph.ts'
 import { fetchDbInfo, fetchTableInfo } from '../schema/parser.ts'
-import {
-  ensureMigrationTable,
-  getAppliedVersions,
-} from '../migration/history.ts'
-import {
-  executeMigration,
-  getPendingMigrations,
-  migrateDown,
-  migrateUp,
-} from '../migration/executor.ts'
+import { ensureMigrationTable, getAppliedVersions } from '../migration/history.ts'
+import { executeMigration, getPendingMigrations, migrateDown, migrateUp } from '../migration/executor.ts'
 import { MigrationDirection } from '../migration/models.ts'
 import type { Migration } from '../migration/models.ts'
 
@@ -90,7 +71,9 @@ async function cleanTable(table: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 describe('Integration: createRecord', () => {
-  afterEach(async () => { await cleanTable('cr_users') })
+  afterEach(async () => {
+    await cleanTable('cr_users')
+  })
 
   it('should create a record and return it', async () => {
     const record = await createRecord<{ name: string; age: number }>(db, 'cr_users', { name: 'Alice', age: 30 })
@@ -107,7 +90,9 @@ describe('Integration: createRecord', () => {
 })
 
 describe('Integration: getRecord', () => {
-  afterEach(async () => { await cleanTable('gr_users') })
+  afterEach(async () => {
+    await cleanTable('gr_users')
+  })
 
   it('should retrieve an existing record by id', async () => {
     await db.query(`CREATE gr_users:alice SET name = 'Alice', age = 30`)
@@ -125,7 +110,9 @@ describe('Integration: getRecord', () => {
 })
 
 describe('Integration: updateRecord', () => {
-  afterEach(async () => { await cleanTable('up_users') })
+  afterEach(async () => {
+    await cleanTable('up_users')
+  })
 
   it('should update an existing record', async () => {
     await db.query(`CREATE up_users:bob SET name = 'Bob', age = 25`)
@@ -137,12 +124,17 @@ describe('Integration: updateRecord', () => {
 })
 
 describe('Integration: mergeRecord', () => {
-  afterEach(async () => { await cleanTable('mg_users') })
+  afterEach(async () => {
+    await cleanTable('mg_users')
+  })
 
   it('should merge partial data into an existing record', async () => {
     await db.query(`CREATE mg_users:carol SET name = 'Carol', age = 28, active = true`)
     const merged = await mergeRecord<{ name: string; age: number; active: boolean; score: number }>(
-      db, 'mg_users', 'carol', { score: 99 },
+      db,
+      'mg_users',
+      'carol',
+      { score: 99 },
     )
     assertEquals(merged.name, 'Carol')
     assertEquals(merged.score, 99)
@@ -151,7 +143,9 @@ describe('Integration: mergeRecord', () => {
 })
 
 describe('Integration: deleteRecord / deleteRecords', () => {
-  afterEach(async () => { await cleanTable('del_users') })
+  afterEach(async () => {
+    await cleanTable('del_users')
+  })
 
   it('should delete a single record', async () => {
     await db.query(`CREATE del_users:eve SET name = 'Eve'`)
@@ -172,11 +166,15 @@ describe('Integration: deleteRecord / deleteRecords', () => {
 })
 
 describe('Integration: createRecords', () => {
-  afterEach(async () => { await cleanTable('bulk_users') })
+  afterEach(async () => {
+    await cleanTable('bulk_users')
+  })
 
   it('should create multiple records in sequence', async () => {
     const result = await createRecords<{ name: string }>(db, 'bulk_users', [
-      { name: 'X' }, { name: 'Y' }, { name: 'Z' },
+      { name: 'X' },
+      { name: 'Y' },
+      { name: 'Z' },
     ])
     assertEquals(result.length, 3)
   })
@@ -199,7 +197,9 @@ describe('Integration: queryRecords / countRecords / exists / first / last', () 
       CREATE qc_items:c SET name = 'Gamma', score = 30;
     `)
   })
-  afterEach(async () => { await cleanTable('qc_items') })
+  afterEach(async () => {
+    await cleanTable('qc_items')
+  })
 
   it('queryRecords should return all records', async () => {
     const items = await queryRecords(db, 'qc_items')
@@ -261,7 +261,9 @@ describe('Integration: typed CRUD', () => {
     age: z.number(),
   })
 
-  afterEach(async () => { await cleanTable('typed_crud') })
+  afterEach(async () => {
+    await cleanTable('typed_crud')
+  })
 
   it('createTyped should create and validate a record', async () => {
     const user = await createTyped(db, 'typed_crud', { name: 'Frank', age: 40 }, UserSchema)
@@ -464,7 +466,9 @@ describe('Integration: graph traversal and relations', () => {
 // ---------------------------------------------------------------------------
 
 describe('Integration: schema parser', () => {
-  afterEach(async () => { await cleanTable('parser_table') })
+  afterEach(async () => {
+    await cleanTable('parser_table')
+  })
 
   it('fetchDbInfo should return database info with tables key', async () => {
     await db.query('DEFINE TABLE parser_table SCHEMALESS')

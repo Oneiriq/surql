@@ -108,17 +108,17 @@ describe('Query Builder', () => {
 
     it('should support RETURN NONE format', () => {
       const sql = updateQuery('user:alice', { age: 30 }).returnFormat(ReturnFormat.NONE).toSurQL()
-      assertEquals(sql, "UPDATE user:alice SET age = 30 RETURN NONE")
+      assertEquals(sql, 'UPDATE user:alice SET age = 30 RETURN NONE')
     })
 
     it('should support RETURN DIFF format', () => {
       const sql = updateQuery('user:alice', { age: 30 }).returnFormat(ReturnFormat.DIFF).toSurQL()
-      assertEquals(sql, "UPDATE user:alice SET age = 30 RETURN DIFF")
+      assertEquals(sql, 'UPDATE user:alice SET age = 30 RETURN DIFF')
     })
 
     it('should support RETURN BEFORE format', () => {
       const sql = updateQuery('user:alice', { age: 30 }).returnFormat(ReturnFormat.BEFORE).toSurQL()
-      assertEquals(sql, "UPDATE user:alice SET age = 30 RETURN BEFORE")
+      assertEquals(sql, 'UPDATE user:alice SET age = 30 RETURN BEFORE')
     })
 
     it('should support WHERE with RETURN DIFF format', () => {

@@ -1,6 +1,6 @@
 import type { EdgeDefinition } from '../schema/edge.ts'
 import type { FieldDefinition } from '../schema/fields.ts'
-import { IndexType, type IndexDefinition, type TableDefinition } from '../schema/table.ts'
+import { type IndexDefinition, IndexType, type TableDefinition } from '../schema/table.ts'
 import { DiffOperation, type SchemaDiff } from './models.ts'
 
 /**

@@ -1,0 +1,40 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Start SurrealDB
+        run: |
+          docker run -d \
+            --name surrealdb \
+            -p 8000:8000 \
+            surrealdb/surrealdb:latest \
+            start --user root --pass root memory
+          for i in $(seq 1 20); do
+            if curl -sf http://localhost:8000/health; then
+              echo "SurrealDB is ready"
+              break
+            fi
+            echo "Waiting for SurrealDB... attempt $i"
+            sleep 2
+          done
+      - name: Run integration tests
+        run: |
+          deno test -A \
+            src/test/auth.test.ts \
+            src/test/integration.test.ts \
+            src/test/integration_crud.test.ts \
+            src/test/integration_client.test.ts \
+            -q

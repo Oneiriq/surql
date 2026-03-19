@@ -15,12 +15,16 @@
 !test/
 !test/**
 
+!docs/
+!docs/**
+
 !.gitignore
 !.npmignore
 !CHANGELOG.md
 !PUBLISHING.md
 !deno.json
 !deno.lock
+!mkdocs.yml
 !mod.ts
 !README.md
 !LICENSE

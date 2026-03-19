@@ -2,7 +2,7 @@ import { assertEquals, assertStringIncludes } from '@std/assert'
 import { describe, it } from '@std/testing/bdd'
 import { diffIndexes } from '../migration/diff.ts'
 import { DiffOperation } from '../migration/models.ts'
-import { MTreeDistanceType, MTreeVectorType, mtreeIndex } from '../schema/table.ts'
+import { MTreeDistanceType, mtreeIndex, MTreeVectorType } from '../schema/table.ts'
 
 describe('diffIndexes - MTREE', () => {
   it('should generate MTREE SQL when adding an MTREE index', () => {

@@ -15,5 +15,8 @@ jobs:
         uses: denoland/setup-deno@v2
         with:
           deno-version: ${{ matrix.deno-version }}
-      - name: Run all tests
-        run: deno test -A --ignore="src/test/auth.test.ts" -q
+      - name: Run unit tests
+        run: |
+          deno test -A \
+            --ignore="src/test/auth.test.ts,src/test/integration.test.ts,src/test/integration_crud.test.ts,src/test/integration_client.test.ts" \
+            -q

@@ -2,9 +2,16 @@ import { assertEquals } from '@std/assert'
 import { describe, it } from '@std/testing/bdd'
 import { diffEdges, diffPermissions } from '../migration/diff.ts'
 import { DiffOperation } from '../migration/models.ts'
-import { EdgeMode, edgeSchema, withEdgeFields, withEdgeEvents, withEdgeIndexes, withEdgePermissions } from '../schema/edge.ts'
+import {
+  EdgeMode,
+  edgeSchema,
+  withEdgeEvents,
+  withEdgeFields,
+  withEdgeIndexes,
+  withEdgePermissions,
+} from '../schema/edge.ts'
 import { intField, stringField } from '../schema/fields.ts'
-import { event, index, IndexType, TableMode, tableSchema, withPermissions } from '../schema/table.ts'
+import { event, index, TableMode, tableSchema, withPermissions } from '../schema/table.ts'
 import type { TableDefinition } from '../schema/table.ts'
 
 describe('diffPermissions', () => {

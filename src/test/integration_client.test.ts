@@ -1,8 +1,8 @@
 import { assert, assertEquals, assertRejects } from '@std/assert'
-import { afterAll, afterEach, beforeAll, beforeEach, describe, it } from '@std/testing/bdd'
+import { afterAll, afterEach, beforeAll, describe, it } from '@std/testing/bdd'
 import { RecordId } from 'surrealdb'
 import { SurQLClient } from '../client.ts'
-import { MigrationCoordinator, deployToEnvironments } from '../orchestration/coordinator.ts'
+import { deployToEnvironments, MigrationCoordinator } from '../orchestration/coordinator.ts'
 import { DeploymentStatus } from '../orchestration/strategy.ts'
 import type { EnvironmentConfig } from '../orchestration/config.ts'
 import type { Migration } from '../migration/models.ts'
@@ -73,7 +73,9 @@ async function cleanTable(table: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 describe('SurQLClient: create()', () => {
-  afterEach(async () => { await cleanTable('sc_users') })
+  afterEach(async () => {
+    await cleanTable('sc_users')
+  })
 
   it('should create a record and return it', async () => {
     const result = await client.create<UserRecord>('sc_users', { name: 'Alice', age: 30 }).execute()
@@ -96,7 +98,9 @@ describe('SurQLClient: create()', () => {
 // ---------------------------------------------------------------------------
 
 describe('SurQLClient: query()', () => {
-  afterEach(async () => { await cleanTable('sq_users') })
+  afterEach(async () => {
+    await cleanTable('sq_users')
+  })
 
   it('should query and return all records from a table', async () => {
     const db = await client.getConnection()
@@ -138,13 +142,16 @@ describe('SurQLClient: query()', () => {
 // ---------------------------------------------------------------------------
 
 describe('SurQLClient: update()', () => {
-  afterEach(async () => { await cleanTable('su_users') })
+  afterEach(async () => {
+    await cleanTable('su_users')
+  })
 
   it('should update a record by id', async () => {
     const db = await client.getConnection()
     await db.query(`CREATE su_users:u1 SET name = 'Alice', age = 30`)
 
-    await client.update<UserRecord>('su_users', new RecordId('su_users', 'u1'), { name: 'Alice Updated', age: 31 }).execute()
+    await client.update<UserRecord>('su_users', new RecordId('su_users', 'u1'), { name: 'Alice Updated', age: 31 })
+      .execute()
 
     const results = await client.query<UserRecord>('su_users').where({ name: 'Alice Updated' }).execute()
     assertEquals(results.length, 1)
@@ -157,7 +164,9 @@ describe('SurQLClient: update()', () => {
 // ---------------------------------------------------------------------------
 
 describe('SurQLClient: remove()', () => {
-  afterEach(async () => { await cleanTable('sr_users') })
+  afterEach(async () => {
+    await cleanTable('sr_users')
+  })
 
   it('should remove a record by id (DeleteQL throws because SurrealDB DELETE returns null)', async () => {
     const db = await client.getConnection()
@@ -179,7 +188,9 @@ describe('SurQLClient: remove()', () => {
 // ---------------------------------------------------------------------------
 
 describe('SurQLClient: merge()', () => {
-  afterEach(async () => { await cleanTable('sm_users') })
+  afterEach(async () => {
+    await cleanTable('sm_users')
+  })
 
   it('should merge fields into an existing record', async () => {
     const db = await client.getConnection()
@@ -198,7 +209,9 @@ describe('SurQLClient: merge()', () => {
 // ---------------------------------------------------------------------------
 
 describe('SurQLClient: upsert()', () => {
-  afterEach(async () => { await cleanTable('sups_users') })
+  afterEach(async () => {
+    await cleanTable('sups_users')
+  })
 
   it('should create a record when it does not exist', async () => {
     await client.upsert<UserRecord>('sups_users', { name: 'Diana', age: 28 }).execute()
@@ -214,7 +227,9 @@ describe('SurQLClient: upsert()', () => {
 // ---------------------------------------------------------------------------
 
 describe('SurQLClient: patch()', () => {
-  afterEach(async () => { await cleanTable('sp_users') })
+  afterEach(async () => {
+    await cleanTable('sp_users')
+  })
 
   it('should apply replace patch operation to a record', async () => {
     const db = await client.getConnection()
