@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.0-rc.2] - 2026-03-19
+
+### Fixed
+
+- **Docs**: Standardized JSDoc examples to use consistent placeholder values
+- **README**: Fixed incorrect documentation section link
+
+---
+
 ## [0.3.0] - 2025-11-14
 
 ### Added - New Features in v0.3.0

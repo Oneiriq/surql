@@ -82,7 +82,7 @@ const users = await client.query<User, SerializedUser>('users')
 
 ## Documentation
 
-Full documentation and API reference in the **[Changelog](./CHANGELOG.md)**.
+See the **[Changelog](./CHANGELOG.md)** for release history.
 
 ## Requirements
 

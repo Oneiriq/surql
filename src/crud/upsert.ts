@@ -42,11 +42,11 @@ export class UpsertQL<R extends { id: RecordId }, T = unknown> extends QueryBuil
    * @returns this - For method chaining
    * @example
    * const user = await client.upsert('users', {
-   *   username: 'shon_doe',
-   *   email: 'shon@example.com',
-   *   name: 'Shon Doe'
+   *   username: 'jane_doe',
+   *   email: 'jane@example.com',
+   *   name: 'Jane Doe'
    * })
-   *   .withId('user:shon_doe')
+   *   .withId('user:jane_doe')
    *   .map(mapUser)
    *   .execute()
    */
@@ -65,9 +65,9 @@ export class UpsertQL<R extends { id: RecordId }, T = unknown> extends QueryBuil
    * @returns this - For method chaining
    * @example
    * const user = await client.upsert('users', {
-   *   username: 'shon_doe',
-   *   email: 'shon@example.com',
-   *   name: 'Shon Doe'
+   *   username: 'jane_doe',
+   *   email: 'jane@example.com',
+   *   name: 'Jane Doe'
    * })
    *   .onConflict('username', 'email')
    *   .map(mapUser)
