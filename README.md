@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![SurrealDB](https://img.shields.io/badge/SurrealDB-1.0%2B-ff00a0)](https://surrealdb.com/)
 
-A type-safe query builder and client for [SurrealDB](https://surrealdb.com/). Build complex queries, manage connections, and perform typed CRUD -- all from TypeScript, for Deno and Node.js.
+A type-safe query builder and client for [SurrealDB](https://surrealdb.com/). Build complex queries, manage connections, and perform typed CRUD all from TypeScript, available for both Deno and Node.js.
 
 ## Features
 
@@ -95,7 +95,7 @@ MIT - see [LICENSE](LICENSE).
 
 ## Python
 
-Looking for SurrealDB tooling in Python? Check out **[surql-py](https://github.com/Oneiriq/surql-py)** -- a code-first schema, migration, and query toolkit for SurrealDB built for Python 3.12+.
+Looking for SurrealDB tooling in Python? Check out **[surql-py](https://github.com/Oneiriq/surql-py)** the code-first schema, migration, and query toolkit for SurrealDB built for Python 3.12+.
 
 ## Support
 
