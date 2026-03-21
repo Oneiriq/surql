@@ -827,7 +827,7 @@ describe('Backward compatibility verification', () => {
           return await readQL.execute()
         })
 
-        assert(warning.includes('Raw database types (RecordId, Date) will be returned'))
+        assert(warning.includes('RecordId fields will be normalized to strings automatically'))
       } finally {
         connectionStub.restore()
       }

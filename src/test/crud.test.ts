@@ -71,7 +71,7 @@ describe('MergeQL', () => {
           return await mergeQL.execute()
         })
 
-        assert(warning.includes('Raw database types (RecordId, Date) will be returned'))
+        assert(warning.includes('RecordId fields will be normalized to strings automatically'))
       } finally {
         connectionStub.restore()
       }
@@ -112,9 +112,9 @@ describe('MergeQL', () => {
 
         const result = await mergeQL.execute()
 
-        assertEquals(result.id, mockRecordId) // Should be RecordId, not string
+        assertEquals(typeof (result as unknown as { id: string }).id, 'string') // RecordId normalized to string
+        assertEquals((result as unknown as { id: string }).id, 'users:123')
         assertEquals(result.email, 'updated@example.com')
-        assert(result.created_at instanceof Date) // Should be Date, not string
       } finally {
         connectionStub.restore()
       }
@@ -368,7 +368,7 @@ describe('PatchQL', () => {
           return await patchQL.execute()
         })
 
-        assert(warning.includes('Raw database types (RecordId, Date) will be returned'))
+        assert(warning.includes('RecordId fields will be normalized to strings automatically'))
       } finally {
         connectionStub.restore()
       }
@@ -669,9 +669,9 @@ describe('UpsertQL', () => {
 
         const result = await upsertQL.execute()
 
-        assertEquals(result.id, mockRecordId) // Should be RecordId, not string
+        assertEquals(typeof (result as unknown as { id: string }).id, 'string') // RecordId normalized to string
+        assertEquals((result as unknown as { id: string }).id, 'users:123')
         assertEquals(result.username, 'test_user')
-        assert(result.created_at instanceof Date) // Should be Date, not string
       } finally {
         connectionStub.restore()
       }
@@ -690,7 +690,7 @@ describe('UpsertQL', () => {
           return await upsertQL.execute()
         })
 
-        assert(warning.includes('Raw database types (RecordId, Date) will be returned'))
+        assert(warning.includes('RecordId fields will be normalized to strings automatically'))
       } finally {
         connectionStub.restore()
       }

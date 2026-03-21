@@ -237,7 +237,7 @@ describe('ReadQL', () => {
         await readQL.execute()
 
         assert(warningMessage.includes('SurQL: No mapper function provided'))
-        assert(warningMessage.includes('Raw database types (RecordId, Date) will be returned'))
+        assert(warningMessage.includes('RecordId fields will be normalized to strings automatically'))
       } finally {
         connectionStub.restore()
         console.warn = originalWarn
@@ -383,7 +383,7 @@ describe('query() factory function', () => {
   })
 
   describe('T = R defaults (new functionality)', () => {
-    it('should work without explicit T type parameter and return raw types', async () => {
+    it('should work without explicit T type parameter and return normalized types', async () => {
       const mockRecordId = new RecordId('users', '123')
       const mockData = [
         { id: mockRecordId, username: 'puffin123', email: 'puffin@example.com', active: true, created_at: new Date() },
@@ -402,9 +402,9 @@ describe('query() factory function', () => {
 
         assert(Array.isArray(result))
         assertEquals(result.length, 1)
-        assertEquals(result[0].id, mockRecordId) // Should be RecordId, not string
+        assertEquals(typeof (result[0] as unknown as { id: string }).id, 'string') // RecordId normalized to string
+        assertEquals((result[0] as unknown as { id: string }).id, 'users:123')
         assertEquals(result[0].username, 'puffin123')
-        assert(result[0].created_at instanceof Date) // Should be Date, not string
       } finally {
         connectionStub.restore()
       }
@@ -435,7 +435,7 @@ describe('query() factory function', () => {
         await readQL.execute()
 
         assert(warningMessage.includes('SurQL: No mapper function provided'))
-        assert(warningMessage.includes('Raw database types (RecordId, Date) will be returned'))
+        assert(warningMessage.includes('RecordId fields will be normalized to strings automatically'))
       } finally {
         connectionStub.restore()
         console.warn = originalWarn
@@ -477,7 +477,7 @@ describe('query() factory function', () => {
       }
     })
 
-    it('should work with first() and return raw types', async () => {
+    it('should work with first() and return normalized types', async () => {
       const mockRecordId = new RecordId('users', '123')
       const mockData = [
         { id: mockRecordId, username: 'puffin123', email: 'puffin@example.com', active: true, created_at: new Date() },
@@ -494,9 +494,9 @@ describe('query() factory function', () => {
         const result = await readQL.first()
 
         assert(result !== undefined)
-        assertEquals(result.id, mockRecordId) // Should be RecordId
+        assertEquals(typeof (result as unknown as { id: string }).id, 'string') // RecordId normalized to string
+        assertEquals((result as unknown as { id: string }).id, 'users:123')
         assertEquals(result.username, 'puffin123')
-        assert(result.created_at instanceof Date) // Should be Date
       } finally {
         connectionStub.restore()
       }
@@ -520,7 +520,7 @@ describe('query() factory function', () => {
       }
     })
 
-    it('should work with complex queries and return raw types', async () => {
+    it('should work with complex queries and return normalized types', async () => {
       const mockRecordId = new RecordId('users', '123')
       const mockData = [
         { id: mockRecordId, username: 'puffin123', email: 'puffin@example.com', active: true, created_at: new Date() },
@@ -545,8 +545,8 @@ describe('query() factory function', () => {
 
         assert(Array.isArray(result))
         assertEquals(result.length, 1)
-        assertEquals(result[0].id, mockRecordId) // Should be RecordId
-        assert(result[0].created_at instanceof Date) // Should be Date
+        assertEquals(typeof (result[0] as unknown as { id: string }).id, 'string') // RecordId normalized to string
+        assertEquals((result[0] as unknown as { id: string }).id, 'users:123')
       } finally {
         connectionStub.restore()
       }

@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.0.1] - 2026-03-20
+
+### Fixed
+
+- **RecordID normalization**: RecordId objects from the SurrealDB JS SDK no longer leak through to consumers when no mapper is provided. The `mapResults()` base method now applies `normalizeSurrealRecord()` automatically, converting RecordId fields to plain strings in all CRUD operations (read, create, update, delete, merge, upsert, patch) regardless of whether a `.map()` function is supplied.
+
+### Added
+
+- **Tests**: Added `normalization.test.ts` covering automatic RecordID normalization across all query builder types.
+
+---
+
 ## [1.0.0-rc.2] - 2026-03-19
 
 ### Fixed

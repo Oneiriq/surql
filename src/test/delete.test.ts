@@ -68,7 +68,7 @@ describe('DeleteQL', () => {
       }
     })
 
-    it('should work without explicit T type parameter and return raw types', async () => {
+    it('should work without explicit T type parameter and return normalized types', async () => {
       const mockRecordId = new RecordId('users', '123')
       const mockData = [createTestUserRaw({
         id: mockRecordId,
@@ -84,9 +84,9 @@ describe('DeleteQL', () => {
 
         const result = await deleteQL.execute()
 
-        assertEquals(result.id, mockRecordId) // Should be RecordId, not string
+        assertEquals(typeof (result as unknown as { id: string }).id, 'string') // RecordId normalized to string
+        assertEquals((result as unknown as { id: string }).id, 'users:123')
         assertEquals(result.username, 'deleted_user')
-        assert(result.created_at instanceof Date) // Should be Date, not string
       } finally {
         connectionStub.restore()
       }

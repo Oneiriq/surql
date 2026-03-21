@@ -1,5 +1,6 @@
 import { intoSurQlError } from '../utils/surrealError.ts'
 import { intoZodMappingError } from '../utils/zodError.ts'
+import { normalizeSurrealRecord } from '../utils/helpers.ts'
 import type { SurrealDbTable } from '../crud/types.ts'
 import type { RecordId, Surreal } from 'surrealdb'
 
@@ -145,8 +146,9 @@ export abstract class QueryBuilder<R extends { id: RecordId }, T = unknown> {
       }
       if (isOptional && warningBehavior === 'show') {
         console.warn(
-          'SurQL: No mapper function provided. Raw database types (RecordId, Date) will be returned. ' +
-            'Consider using .map() to transform to serializable types, or use the Serialized<T> utility type.',
+          'SurQL: No mapper function provided. RecordId fields will be normalized to strings automatically, ' +
+            'but other database types (Date) will be returned as-is. ' +
+            'Consider using .map() to transform to fully serializable types, or use the Serialized<T> utility type.',
         )
       }
       // warningBehavior === 'suppress': do nothing
@@ -174,11 +176,11 @@ export abstract class QueryBuilder<R extends { id: RecordId }, T = unknown> {
         return [] as T[]
       }
 
-      // If no mapper provided and optional, return raw records
+      // If no mapper provided and optional, normalize RecordId fields and return
       if (!this.mapper && isOptional) {
         // Handle the common SurrealDB response format [R[]] (query results)
         if (Array.isArray(records) && records.length === 1 && Array.isArray(records[0])) {
-          return records[0] as T[]
+          return (records[0] as R[]).map((r) => normalizeSurrealRecord(r)) as unknown as T[]
         }
 
         // Handle empty array response
@@ -188,16 +190,16 @@ export abstract class QueryBuilder<R extends { id: RecordId }, T = unknown> {
 
         // Handle array of single record [R] (common for create/update/delete)
         if (Array.isArray(records) && records.length === 1 && !Array.isArray(records[0])) {
-          return records[0] as T
+          return normalizeSurrealRecord(records[0] as R) as unknown as T
         }
 
         // Handle flat array of records R[] (less common)
         if (Array.isArray(records)) {
-          return records as T[]
+          return (records as R[]).map((r) => normalizeSurrealRecord(r)) as unknown as T[]
         }
 
         // Handle single record R (uncommon)
-        return records as T
+        return normalizeSurrealRecord(records as R) as unknown as T
       }
 
       // Handle the common SurrealDB response format [R[]] (query results)
