@@ -15,10 +15,21 @@ export enum ReturnFormat {
 export type VectorDistanceType = 'COSINE' | 'EUCLIDEAN' | 'MANHATTAN' | 'MINKOWSKI' | 'CHEBYSHEV' | 'HAMMING'
 
 /**
- * Quote a value for safe SurrealQL embedding
+ * Quote a value for safe SurrealQL embedding.
+ * Values with a `__surqlFn` marker are rendered as raw SurrealQL (server-side functions).
  */
 export function quoteValue(value: unknown): string {
   if (value === null || value === undefined) return 'NONE'
+  // Handle SurrealFnValue - render as raw SurrealQL, not parameterized
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    '__surqlFn' in value &&
+    (value as { __surqlFn: boolean }).__surqlFn === true &&
+    'surql' in value
+  ) {
+    return (value as { surql: string }).surql
+  }
   if (typeof value === 'string') return `'${value.replace(/'/g, "\\'")}'`
   if (typeof value === 'boolean') return value ? 'true' : 'false'
   if (typeof value === 'number') return String(value)

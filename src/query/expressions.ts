@@ -125,6 +125,26 @@ export function max_(expr: Expression): FunctionExpression {
   return func('math::max', expr)
 }
 
+/** math::mean aggregate (alias for avg) */
+export function mathMean(expr: Expression): FunctionExpression {
+  return func('math::mean', expr)
+}
+
+/** math::sum aggregate (alias for sum_) */
+export function mathSum(expr: Expression): FunctionExpression {
+  return func('math::sum', expr)
+}
+
+/** math::max aggregate (alias for max_) */
+export function mathMax(expr: Expression): FunctionExpression {
+  return func('math::max', expr)
+}
+
+/** math::min aggregate (alias for min_) */
+export function mathMin(expr: Expression): FunctionExpression {
+  return func('math::min', expr)
+}
+
 /** ABS */
 export function abs_(expr: Expression): FunctionExpression {
   return func('math::abs', expr)
@@ -215,4 +235,69 @@ export function cast(expr: Expression, typeName: string): Expression {
       return `<${typeName}> ${expr.toSurQL()}`
     },
   })
+}
+
+/**
+ * Create a type::record() reference for linking to a specific record.
+ * Generates: type::record('table', 'id') or type::record('table:id')
+ *
+ * @param table - Table name
+ * @param id - Optional record ID (if omitted, table is treated as a full record string)
+ */
+export function recordRef(table: string, id?: string): Expression {
+  validateIdentifier(table)
+  if (id !== undefined) {
+    return Object.freeze({
+      toSurQL(): string {
+        return `type::record('${table}:${id}')`
+      },
+    })
+  }
+  return Object.freeze({
+    toSurQL(): string {
+      return `type::record('${table}')`
+    },
+  })
+}
+
+/**
+ * Marker interface for SurrealDB server-side function values.
+ * When used in create/update data, these render as raw SurrealQL
+ * instead of being parameterized.
+ */
+export interface SurrealFnValue {
+  readonly __surqlFn: true
+  readonly surql: string
+  toSurQL(): string
+}
+
+/**
+ * Create a SurrealDB server-side function reference for use in field values.
+ * When passed as a value in create/update operations, it will be rendered
+ * as raw SurrealQL rather than parameterized.
+ *
+ * @param name - Fully qualified function name (e.g. 'time::now', 'math::floor')
+ * @param args - Optional arguments as SurrealQL strings
+ */
+export function surqlFn(name: string, ...args: string[]): SurrealFnValue {
+  const argsStr = args.join(', ')
+  return Object.freeze({
+    __surqlFn: true as const,
+    surql: `${name}(${argsStr})`,
+    toSurQL(): string {
+      return this.surql
+    },
+  })
+}
+
+/**
+ * Type guard to check if a value is a SurrealFnValue
+ */
+export function isSurqlFn(value: unknown): value is SurrealFnValue {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    '__surqlFn' in value &&
+    (value as SurrealFnValue).__surqlFn === true
+  )
 }
