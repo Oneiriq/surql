@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.1.0] - 2026-03-31
+
+### Added
+
+- **GROUP ALL support** (#5): Added `groupAll()` to the immutable Query builder for aggregating entire result sets without grouping fields. Added `mathMean()`, `mathSum()`, `mathMax()`, `mathMin()` expression aliases for SurrealDB math function names.
+- **type::record() helper** (#6): Added `recordRef(table, id)` function that generates `type::record('table:id')` SurrealQL, usable in SELECT expressions and WHERE conditions.
+- **SurrealDB function support in field values** (#7): Added `surqlFn(name, ...args)` for server-side function references (e.g. `time::now()`, `math::floor()`) that render as raw SurrealQL in create/update operations instead of being parameterized. Updated `quoteValue()` to detect and pass through `SurrealFnValue` objects.
+- **Result extraction helpers** (#8): Enhanced `extractScalar()` with optional `key` and `defaultValue` parameters for targeted field extraction and fallback values.
+
+### Fixed
+
+- **CI/CD**: Fixed publish workflow to properly publish to both JSR and npm on release tags. Resolved environment protection rule conflict for workflow_dispatch triggers. Upgraded GitHub Actions to Node.js 24 compatible versions.
+
+---
+
 ## [1.0.1] - 2026-03-20
 
 ### Fixed
