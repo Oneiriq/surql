@@ -23,6 +23,7 @@ interface QueryState<T> {
   readonly conditions: readonly string[]
   readonly orderFields: readonly { field: string; direction: SortDir }[]
   readonly groupFields: readonly string[]
+  readonly groupAll: boolean
   readonly limitValue: number | null
   readonly offsetValue: number | null
   readonly data: Record<string, unknown> | null
@@ -47,6 +48,7 @@ function defaultState<T>(): QueryState<T> {
     conditions: [],
     orderFields: [],
     groupFields: [],
+    groupAll: false,
     limitValue: null,
     offsetValue: null,
     data: null,
@@ -110,6 +112,11 @@ export class Query<T = Record<string, unknown>> {
   groupBy(...fields: string[]): Query<T> {
     fields.forEach(validateIdentifier)
     return this.with({ groupFields: [...this.state.groupFields, ...fields] })
+  }
+
+  /** Add GROUP ALL (aggregate entire result set without grouping fields) */
+  groupAll(): Query<T> {
+    return this.with({ groupAll: true })
   }
 
   /** Set LIMIT */
@@ -235,7 +242,9 @@ export class Query<T = Record<string, unknown>> {
       sql += ` WHERE ${this.state.conditions.join(' AND ')}`
     }
 
-    if (this.state.groupFields.length > 0) {
+    if (this.state.groupAll) {
+      sql += ' GROUP ALL'
+    } else if (this.state.groupFields.length > 0) {
       sql += ` GROUP BY ${this.state.groupFields.join(', ')}`
     }
 

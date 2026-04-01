@@ -182,13 +182,23 @@ export function extractOne<T>(raw: unknown): T | null {
 }
 
 /**
- * Extract a scalar value from results
+ * Extract a scalar value from results.
+ * When `key` is provided, extracts that specific field.
+ * When `defaultValue` is provided, returns it instead of null on missing data.
+ *
+ * @param raw - Raw SurrealDB response
+ * @param key - Optional field key to extract
+ * @param defaultValue - Optional fallback value when result is missing
  */
-export function extractScalar<T>(raw: unknown): T | null {
+export function extractScalar<T>(raw: unknown, key?: string, defaultValue?: T): T | null {
   const item = extractOne<Record<string, unknown>>(raw)
-  if (!item) return null
+  if (!item) return defaultValue ?? null
+  if (key !== undefined) {
+    const val = item[key]
+    return val !== undefined ? (val as T) : (defaultValue ?? null)
+  }
   const values = Object.values(item)
-  return values.length > 0 ? (values[0] as T) : null
+  return values.length > 0 ? (values[0] as T) : (defaultValue ?? null)
 }
 
 /**
