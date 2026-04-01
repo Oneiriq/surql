@@ -14,6 +14,9 @@ on:
           - both
         default: both
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   check:
     uses: ./.github/workflows/check.yml
@@ -23,7 +26,7 @@ jobs:
 
   publish-jsr:
     needs: [check, test]
-    if: >
+    if: |
       github.event_name == 'release' ||
       (github.event_name == 'workflow_dispatch' && (inputs.target == 'jsr' || inputs.target == 'both'))
     runs-on: ubuntu-latest
@@ -31,7 +34,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup Deno
         uses: denoland/setup-deno@v2
         with:
@@ -41,15 +44,15 @@ jobs:
 
   publish-npm:
     needs: [check, test]
-    if: >
+    if: |
       (github.event_name == 'release' && !github.event.release.prerelease) ||
       (github.event_name == 'workflow_dispatch' && (inputs.target == 'npm' || inputs.target == 'both'))
     runs-on: ubuntu-latest
-    environment: publish
+    environment: ${{ github.event_name == 'release' && 'publish' || '' }}
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup Deno
         uses: denoland/setup-deno@v2
         with:
@@ -57,7 +60,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
       - name: Build npm package
         run: deno task build:npm

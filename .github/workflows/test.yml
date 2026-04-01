@@ -3,6 +3,9 @@ name: Unit Tests
 on:
   workflow_call:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -10,7 +13,7 @@ jobs:
       matrix:
         deno-version: [v2.x]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup Deno
         uses: denoland/setup-deno@v2
         with:
