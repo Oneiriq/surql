@@ -249,8 +249,21 @@ export function validateLikePattern(pattern: unknown): ValidationResult {
   return { success: true }
 }
 
+const EMBEDDED_PROTOCOLS_SET: ReadonlySet<string> = new Set([
+  'mem',
+  'rocksdb',
+  'surrealkv',
+  'surrealkv+versioned',
+])
+
 /**
- * Validate connection configuration
+ * Validate connection configuration.
+ *
+ * Remote configurations require `host`, `port`, `username`, `password`, and
+ * valid `namespace`/`database`. Embedded configurations (when `protocol` is
+ * one of `mem`, `rocksdb`, `surrealkv`, `surrealkv+versioned`) skip the
+ * network/credential checks and require `path` for persistent engines.
+ *
  * @param config - The connection configuration to validate
  * @returns ValidationResult indicating success or failure with error message
  */
@@ -268,19 +281,33 @@ export function validateConnectionConfig(config: unknown): ValidationResult {
     database,
     username,
     password,
+    protocol,
+    path,
   } = config as Record<string, unknown>
-
-  const hostResult = validateHost(host)
-  if (!hostResult.success) return hostResult
-
-  const portResult = validatePort(port)
-  if (!portResult.success) return portResult
 
   const namespaceResult = validateTableName(namespace)
   if (!namespaceResult.success) return namespaceResult
 
   const databaseResult = validateTableName(database)
   if (!databaseResult.success) return databaseResult
+
+  if (typeof protocol === 'string' && EMBEDDED_PROTOCOLS_SET.has(protocol)) {
+    if (protocol !== 'mem') {
+      if (typeof path !== 'string' || path.length === 0) {
+        return {
+          success: false,
+          error: `Embedded protocol '${protocol}' requires a 'path' field`,
+        }
+      }
+    }
+    return { success: true }
+  }
+
+  const hostResult = validateHost(host)
+  if (!hostResult.success) return hostResult
+
+  const portResult = validatePort(port)
+  if (!portResult.success) return portResult
 
   const usernameResult = validateUsername(username)
   if (!usernameResult.success) return usernameResult

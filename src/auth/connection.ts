@@ -49,7 +49,43 @@ export function buildSigninParams(credentials: AuthCredentials): Record<string, 
 }
 
 /**
- * Configuration for SurrealDB connection
+ * Embedded protocols supported by the surrealdb JS SDK via its optional
+ * engine packages (@surrealdb/node for server-side, @surrealdb/wasm for
+ * browsers). When one of these protocols is used the connection is served
+ * in-process instead of over the network.
+ *
+ * - `mem`: in-memory, ephemeral (requires no `path`)
+ * - `rocksdb`, `surrealkv`, `surrealkv+versioned`: persistent on-disk
+ *   (require a `path`)
+ */
+export const EMBEDDED_PROTOCOLS = [
+  'mem',
+  'rocksdb',
+  'surrealkv',
+  'surrealkv+versioned',
+] as const
+export type EmbeddedProtocol = (typeof EMBEDDED_PROTOCOLS)[number]
+
+/**
+ * Returns true if the given protocol is an embedded (in-process) protocol.
+ */
+export function isEmbeddedProtocol(p: string | undefined): p is EmbeddedProtocol {
+  if (p === undefined) return false
+  return (EMBEDDED_PROTOCOLS as readonly string[]).includes(p)
+}
+
+/**
+ * Configuration for SurrealDB connection.
+ *
+ * Remote (default): populate `host`, `port`, `username`, `password`, and an
+ * optional remote `protocol` (`http`/`https`/`ws`/`wss`).
+ *
+ * Embedded: set `protocol` to one of the {@link EmbeddedProtocol} values. For
+ * persistent engines (`rocksdb`, `surrealkv`, `surrealkv+versioned`) also set
+ * `path` to the on-disk location. `host`/`port`/`username`/`password` are
+ * unused in embedded mode and may be empty strings or any placeholder.
+ *
+ * Namespace and database are always required.
  */
 export interface ConnectionConfig {
   host: string
@@ -59,7 +95,17 @@ export interface ConnectionConfig {
   username: string
   password: string
   useSSL?: boolean
-  protocol?: 'http' | 'https' | 'ws' | 'wss'
+  protocol?:
+    | 'http'
+    | 'https'
+    | 'ws'
+    | 'wss'
+    | EmbeddedProtocol
+  /**
+   * Filesystem path for persistent embedded engines. Required when `protocol`
+   * is `rocksdb`, `surrealkv`, or `surrealkv+versioned`. Ignored otherwise.
+   */
+  path?: string
 }
 
 /**
@@ -137,7 +183,18 @@ export class SurrealConnectionManager {
    */
   private async performConnection(db: Surreal): Promise<Surreal> {
     await db.connect(this.endpoint)
-    await this.performSignin(db)
+
+    // Embedded engines with no credentials supplied don't require a signin;
+    // the engine comes up with a default root identity in-process.
+    const embedded = isEmbeddedProtocol(this.config.protocol)
+    const hasCredentials = !!this.config.username && !!this.config.password
+    if (!embedded || hasCredentials) {
+      await this.performSignin(db)
+    } else {
+      // No token involved; set a long expiry so downstream checks pass.
+      this.expiresAt = Date.now() + 24 * 60 * 60 * 1_000
+    }
+
     await db.use({
       namespace: this.config.namespace,
       database: this.config.database,
@@ -180,10 +237,26 @@ export class SurrealConnectionManager {
   }
 
   /**
-   * Build a secure endpoint URL
+   * Build the connection endpoint URL. Remote protocols emit a standard
+   * `proto://host:port` URL (appending `/rpc` for HTTP). Embedded protocols
+   * emit `mem://` for in-memory or `<protocol>://<path>` for persistent
+   * engines (requires `config.path`).
    */
   private buildSecureEndpoint(config: ConnectionConfig): string {
     let protocol = config.protocol || 'http'
+
+    if (isEmbeddedProtocol(protocol)) {
+      if (protocol === 'mem') {
+        return 'mem://'
+      }
+      const path = config.path
+      if (!path) {
+        throw new Error(
+          `Embedded protocol '${protocol}' requires a 'path' field on ConnectionConfig`,
+        )
+      }
+      return `${protocol}://${path}`
+    }
 
     if (config.useSSL) {
       protocol = protocol === 'ws' ? 'wss' : 'https'
@@ -191,7 +264,11 @@ export class SurrealConnectionManager {
 
     const allowedProtocols = ['http', 'https', 'ws', 'wss']
     if (!allowedProtocols.includes(protocol)) {
-      throw new Error(`Invalid protocol: ${protocol}. Allowed protocols: ${allowedProtocols.join(', ')}`)
+      throw new Error(
+        `Invalid protocol: ${protocol}. Allowed protocols: ${allowedProtocols.join(', ')}, or one of ${
+          EMBEDDED_PROTOCOLS.join(', ')
+        } for embedded engines`,
+      )
     }
 
     try {

@@ -2,7 +2,14 @@
  * SurQL authentication module exports
  */
 
-export { buildSigninParams, type ConnectionConfig, SurrealConnectionManager } from './connection.ts'
+export {
+  buildSigninParams,
+  type ConnectionConfig,
+  EMBEDDED_PROTOCOLS,
+  type EmbeddedProtocol,
+  isEmbeddedProtocol,
+  SurrealConnectionManager,
+} from './connection.ts'
 export { SIGNIN_FIELDS_BY_TYPE } from './constants.ts'
 
 export {

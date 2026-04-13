@@ -2,7 +2,12 @@ import { Surreal } from 'surrealdb'
 import { assert, assertEquals, assertRejects } from '@std/assert'
 import { describe, it } from '@std/testing/bdd'
 import { stub } from '@std/testing/mock'
-import { type ConnectionConfig, SurrealConnectionManager } from '../auth/connection.ts'
+import {
+  type ConnectionConfig,
+  EMBEDDED_PROTOCOLS,
+  isEmbeddedProtocol,
+  SurrealConnectionManager,
+} from '../auth/connection.ts'
 
 const testConfig: ConnectionConfig = {
   host: Deno.env.get('SURQL_TEST_HOST') || 'localhost',
@@ -281,6 +286,188 @@ describe('SurrealConnectionManager', () => {
           username: 'admin',
           password: 'secret123',
         })
+      } finally {
+        connectStub.restore()
+        signinStub.restore()
+        useStub.restore()
+      }
+    })
+  })
+
+  describe('embedded protocol', () => {
+    it('isEmbeddedProtocol classifies each embedded protocol and rejects remote', () => {
+      for (const proto of EMBEDDED_PROTOCOLS) {
+        assertEquals(isEmbeddedProtocol(proto), true)
+      }
+      for (const proto of ['http', 'https', 'ws', 'wss', 'tcp', undefined]) {
+        assertEquals(isEmbeddedProtocol(proto), false)
+      }
+    })
+
+    it('constructs a manager with the in-memory protocol and no host/port', () => {
+      const config: ConnectionConfig = {
+        host: '',
+        port: '',
+        namespace: 'test',
+        database: 'test',
+        username: '',
+        password: '',
+        protocol: 'mem',
+      }
+      const manager = new SurrealConnectionManager(config)
+      assert(manager instanceof SurrealConnectionManager)
+    })
+
+    it('constructs a manager with surrealkv + path', () => {
+      const config: ConnectionConfig = {
+        host: '',
+        port: '',
+        namespace: 'test',
+        database: 'test',
+        username: '',
+        password: '',
+        protocol: 'surrealkv',
+        path: '/tmp/test.db',
+      }
+      const manager = new SurrealConnectionManager(config)
+      assert(manager instanceof SurrealConnectionManager)
+    })
+
+    it('rejects surrealkv without a path', () => {
+      const config: ConnectionConfig = {
+        host: '',
+        port: '',
+        namespace: 'test',
+        database: 'test',
+        username: '',
+        password: '',
+        protocol: 'surrealkv',
+      }
+      let caught: unknown
+      try {
+        new SurrealConnectionManager(config)
+      } catch (e) {
+        caught = e
+      }
+      assert(caught !== undefined, 'expected construction to throw')
+      assert(
+        String(caught).includes("requires a 'path' field"),
+        `unexpected error: ${String(caught)}`,
+      )
+    })
+
+    it('rejects rocksdb without a path', () => {
+      const config: ConnectionConfig = {
+        host: '',
+        port: '',
+        namespace: 'test',
+        database: 'test',
+        username: '',
+        password: '',
+        protocol: 'rocksdb',
+      }
+      let caught: unknown
+      try {
+        new SurrealConnectionManager(config)
+      } catch (e) {
+        caught = e
+      }
+      assert(caught !== undefined, 'expected construction to throw')
+      assert(
+        String(caught).includes("requires a 'path' field"),
+        `unexpected error: ${String(caught)}`,
+      )
+    })
+
+    it('passes the mem:// endpoint to Surreal.connect() and skips signin with no credentials', async () => {
+      const receivedEndpoints: Array<string | URL> = []
+      const connectStub = stub(
+        Surreal.prototype,
+        'connect',
+        (endpoint: string | URL) => {
+          receivedEndpoints.push(endpoint)
+          return Promise.resolve(true as const)
+        },
+      )
+      // deno-lint-ignore no-explicit-any
+      const signinStub = stub(Surreal.prototype, 'signin' as any, () => {
+        throw new Error('signin must not be called for credential-less embedded connections')
+      })
+      const useStub = stubUse()
+      try {
+        const manager = new SurrealConnectionManager({
+          host: '',
+          port: '',
+          namespace: 'test',
+          database: 'test',
+          username: '',
+          password: '',
+          protocol: 'mem',
+        })
+        const db = await manager.getConnection()
+        assert(db instanceof Surreal)
+        assertEquals(receivedEndpoints, ['mem://'])
+        assertEquals(signinStub.calls.length, 0)
+      } finally {
+        connectStub.restore()
+        signinStub.restore()
+        useStub.restore()
+      }
+    })
+
+    it('passes the surrealkv://<path> endpoint to Surreal.connect()', async () => {
+      const receivedEndpoints: Array<string | URL> = []
+      const connectStub = stub(
+        Surreal.prototype,
+        'connect',
+        (endpoint: string | URL) => {
+          receivedEndpoints.push(endpoint)
+          return Promise.resolve(true as const)
+        },
+      )
+      // deno-lint-ignore no-explicit-any
+      const signinStub = stub(Surreal.prototype, 'signin' as any, () => {
+        throw new Error('signin must not be called for credential-less embedded connections')
+      })
+      const useStub = stubUse()
+      try {
+        const manager = new SurrealConnectionManager({
+          host: '',
+          port: '',
+          namespace: 'test',
+          database: 'test',
+          username: '',
+          password: '',
+          protocol: 'surrealkv',
+          path: '/var/lib/app.db',
+        })
+        await manager.getConnection()
+        assertEquals(receivedEndpoints, ['surrealkv:///var/lib/app.db'])
+      } finally {
+        connectStub.restore()
+        signinStub.restore()
+        useStub.restore()
+      }
+    })
+
+    it('performs signin for an embedded connection when credentials are supplied', async () => {
+      const connectStub = stub(Surreal.prototype, 'connect', () => Promise.resolve(true as const))
+      const signinStub = stubSignin()
+      const useStub = stubUse()
+      try {
+        const manager = new SurrealConnectionManager({
+          host: '',
+          port: '',
+          namespace: 'test',
+          database: 'test',
+          username: 'root',
+          password: 'root',
+          protocol: 'surrealkv',
+          path: '/var/lib/app.db',
+        })
+        await manager.getConnection()
+        assertEquals(signinStub.calls.length, 1)
+        assertEquals(signinStub.calls[0].args[0], { username: 'root', password: 'root' })
       } finally {
         connectStub.restore()
         signinStub.restore()
