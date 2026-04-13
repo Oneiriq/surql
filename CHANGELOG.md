@@ -8,6 +8,7 @@
 - **type::record() helper** (#6): Added `recordRef(table, id)` function that generates `type::record('table:id')` SurrealQL, usable in SELECT expressions and WHERE conditions.
 - **SurrealDB function support in field values** (#7): Added `surqlFn(name, ...args)` for server-side function references (e.g. `time::now()`, `math::floor()`) that render as raw SurrealQL in create/update operations instead of being parameterized. Updated `quoteValue()` to detect and pass through `SurrealFnValue` objects.
 - **Result extraction helpers** (#8): Enhanced `extractScalar()` with optional `key` and `defaultValue` parameters for targeted field extraction and fallback values.
+- **Embedded SurrealDB protocols**: `ConnectionConfig` now accepts `protocol: 'mem' | 'rocksdb' | 'surrealkv' | 'surrealkv+versioned'` for in-process connections via the `@surrealdb/node` / `@surrealdb/wasm` engine packages. Persistent engines take an on-disk `path`; `mem` is ephemeral. Credential-less embedded connections skip signin automatically. Exported `EMBEDDED_PROTOCOLS` constant and `isEmbeddedProtocol()` type guard. `validateConnectionConfig()` now bypasses host/port/username/password checks when an embedded protocol is selected. Enables edge/device deployments where each host owns its own SurrealDB instance.
 
 ### Fixed
 
