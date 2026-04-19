@@ -11,7 +11,8 @@ export enum AccessType {
  */
 export interface JwtConfig {
   readonly algorithm: string
-  readonly key: string
+  readonly key?: string
+  readonly url?: string
   readonly issuer?: string
   readonly audience?: string
 }
@@ -33,6 +34,8 @@ export interface AccessDefinition {
   readonly type: AccessType
   readonly jwt?: JwtConfig
   readonly record?: RecordAccessConfig
+  readonly durationSession?: string
+  readonly durationToken?: string
 }
 
 /** Create a generic access schema */

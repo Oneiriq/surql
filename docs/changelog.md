@@ -1,5 +1,101 @@
 # Changelog
 
+## [1.3.2] - 2026-04-19
+
+### Changed
+
+- **Docs refresh** (#37): documented every wave that landed since v1.0.0. New pages: `docs/v3-patterns.md` (buffered BEGIN/COMMIT, `IF NOT EXISTS` emitter, unrolled graph depth), `docs/query-ux.md` (`typeRecord` / `typeThing`, function factories, `FunctionValueExpression`, `extractMany` / `hasResult`, `aggregateRecords`, `updateRecord` / `getRecord` overloads), `docs/cli.md` (`surql migrate|schema|db|orchestrate|settings` reference), `docs/migration.md` (upgrade notes v1.1.0 → v1.2.0 → v1.3.x). README refreshed with first-class helper examples (`typeRecord`, `timeNow`, `aggregateRecords`, `surql` CLI). mkdocs nav extended; `mkdocs build --strict` stays clean.
+
+### Housekeeping
+
+- Version bumped to `1.3.2` in `deno.json` so the refreshed docs can publish.
+
+---
+
+## [1.3.1] - 2026-04-19
+
+### Fixed
+
+- **CI**: Excluded `src/test/integration*.test.ts` from publish-time unit test jobs so JSR/npm publishes no longer require a live SurrealDB container. Integration tests still run in the dedicated integration workflow.
+
+---
+
+## [1.3.0] - 2026-04-19
+
+### Added — Query-UX wave (#29)
+
+- **`typeRecord(table, id?)` / `typeThing(table, id?)`** (#6): first-class SurrealDB v3 record references. `typeThing` is the parity alias for surql-py/rs/go. Emits `type::record('table:id')` (v3-valid; v3 dropped `type::thing`).
+- **Function factories** (#7): `countIf`, `mathAbs`/`mathCeil`/`mathFloor`/`mathRound`, `stringLen`/`stringLower`/`stringUpper`/`stringConcat`. Short-form aliases (`abs_`, `ceil`, `floor`, `round_`, `upper`, `lower`, `concat`, `stringLength`) retained for pre-1.3.0 callers.
+- **`FunctionValueExpression`** (#7): a dual-purpose expression that implements both `FunctionExpression` and `SurrealFnValue`, so the same factory output renders inline in `SELECT` / `WHERE` **and** in `SET` clauses without a second wrap.
+- **Result extraction aliases** (#8): `extractMany` (parity with surql-py `extract_many`) and `hasResult` (parity with `has_result`) surfaced alongside the existing `extractResult` / `hasResults`.
+- **`aggregateRecords(options)`**: one-shot aggregation helper accepting `{ table, select, groupBy?, groupAll?, where?, orderBy?, limit?, client }` and returning rows keyed by the aliases in `select`. `groupAll` and `groupBy` are mutually exclusive.
+- **`typeRecord`-aware CRUD overloads**: `updateRecord(db, ref, data)` and `getRecord(db, ref)` now accept a `typeRecord(...)` value in place of `(table, id)`. The original signatures remain fully supported.
+
+### Added — Developer experience
+
+- **Pre-push hook** (#30): `.githooks/pre-push` mirrors the CI `fmt --check` / `lint` / `check` gates and guards the push locally. Enable once per clone via `git config core.hooksPath .githooks`. The full `deno task test` suite is opt-in via `SURQL_PRE_PUSH_INTEGRATION=1` (requires a running SurrealDB v3.0.5 container). CONTRIBUTING.md documents the workflow.
+
+---
+
+## [1.2.0] - 2026-04-19
+
+### Added — Parity wave (#19, #21, #24)
+
+- **Structured schema parser** (#19): `parseDbInfo`, `parseTableInfo`, `parseFields`, `parseIndexes`, `parseEvents`, `parseAccess`, `parseEdgeInfo`, plus `SchemaParseError`. Full port of the surql-py/surql-rs/surql-go `DEFINE` parser (HNSW index, JWT URL/duration variants, lookbehind edge cases).
+- **Layered settings loader** (`loadSettings`, `getSettings`, `clearSettingsCache`, `getDbConfig`, `getMigrationPath`): reads env vars, `.env`, `surql.yaml`, and `surql.toml` with precedence matching the py/rs/go ports.
+- **GraphQuery fluent builder** (`GraphQuery`, `GraphQueryError`, `GraphQueryRendered`): chainable graph traversal. **v3 depth handling**: passes a positive `depth` unrolled as repeated `->edge->?` hops (v3 dropped the `->edge2` suffix the py reference emits).
+- **Migration squash** (`squashMigrations`, `SquashError`, `SquashOptions`, `SquashResult`): flatten multiple `.surql` migrations into one while preserving checksums and version ordering.
+- **Schema drift hooks** (`checkSchemaDrift`, `defaultSchemaFilter`, `generatePrecommitConfig`, `getStagedSchemaFiles`, `DriftIssue`, `DriftReport`): git-hook / CI-friendly drift detection against a persisted snapshot.
+- **Schema watcher** (`watchSchema`, `WatchCallback`, `WatchHandle`, `WatchSchemaOptions`): filesystem watcher that re-runs drift checks on change with a configurable debounce.
+- **CLI** (#24): new `surql` binary (`./src/cli/main.ts`, exposed as `"./cli"` export). Subcommands:
+  - `surql migrate up|down|status|history|create|validate|generate|squash`
+  - `surql schema show|diff|generate|sync|export|tables|inspect|validate|check|hook-config|watch|visualize`
+  - `surql db init|ping|info|reset|query|version`
+  - `surql orchestrate deploy|status|validate`
+  - `surql settings` (dump resolved configuration)
+  - Built on `@cliffy/command`; honours `--config <path:string>` at every level.
+
+### Added — SurrealDB v3 correctness (#13, #14, #15)
+
+- **Buffered transactions** (#13): `Transaction.execute()` now queues statements client-side and flushes them as a single `BEGIN TRANSACTION; ...; COMMIT TRANSACTION;` request on `commit()`. SurrealDB v3 rejects bare `COMMIT TRANSACTION` / `CANCEL TRANSACTION` statements across isolated RPCs, so streaming the bookends no longer works.
+- **`IF NOT EXISTS` emitter** (#15): `generateTableSql`, `generateEdgeSql`, `generateAccessSql`, and `generateSchemaSql` accept an `ifNotExists: boolean` option. Set `true` to emit `DEFINE TABLE IF NOT EXISTS`, `DEFINE ACCESS IF NOT EXISTS`, etc., so schemas can be re-applied idempotently against a live v3 database.
+- **Integration CI pinned to SurrealDB v3.0.5** (#14): `.github/workflows/integration.yml` runs against `surrealdb/surrealdb:v3.0.5`; unit tests (publish jobs) exclude `integration*.test.ts`.
+
+### Added — Schema definition extensions
+
+- **HNSW index** (`hnswIndex`, `HnswDistanceType`) on top of the existing MTREE index.
+- **JWT URL + access durations** on `DEFINE ACCESS`.
+
+---
+
+## [1.1.0] - 2026-03-31
+
+### Added
+
+- **GROUP ALL support** (#5): Added `groupAll()` to the immutable Query builder for aggregating entire result sets without grouping fields. Added `mathMean()`, `mathSum()`, `mathMax()`, `mathMin()` expression aliases for SurrealDB math function names.
+- **type::record() helper** (#6): Added `recordRef(table, id)` function that generates `type::record('table:id')` SurrealQL, usable in SELECT expressions and WHERE conditions.
+- **SurrealDB function support in field values** (#7): Added `surqlFn(name, ...args)` for server-side function references (e.g. `time::now()`, `math::floor()`) that render as raw SurrealQL in create/update operations instead of being parameterized. Updated `quoteValue()` to detect and pass through `SurrealFnValue` objects.
+- **Result extraction helpers** (#8): Enhanced `extractScalar()` with optional `key` and `defaultValue` parameters for targeted field extraction and fallback values.
+- **Embedded SurrealDB protocols**: `ConnectionConfig` now accepts `protocol: 'mem' | 'rocksdb' | 'surrealkv' | 'surrealkv+versioned'` for in-process connections via the `@surrealdb/node` / `@surrealdb/wasm` engine packages. Persistent engines take an on-disk `path`; `mem` is ephemeral. Credential-less embedded connections skip signin automatically. Exported `EMBEDDED_PROTOCOLS` constant and `isEmbeddedProtocol()` type guard. `validateConnectionConfig()` now bypasses host/port/username/password checks when an embedded protocol is selected. Enables edge/device deployments where each host owns its own SurrealDB instance.
+
+### Fixed
+
+- **CI/CD**: Fixed publish workflow to properly publish to both JSR and npm on release tags. Resolved environment protection rule conflict for workflow_dispatch triggers. Upgraded GitHub Actions to Node.js 24 compatible versions.
+
+---
+
+## [1.0.1] - 2026-03-20
+
+### Fixed
+
+- **RecordID normalization**: RecordId objects from the SurrealDB JS SDK no longer leak through to consumers when no mapper is provided. The `mapResults()` base method now applies `normalizeSurrealRecord()` automatically, converting RecordId fields to plain strings in all CRUD operations (read, create, update, delete, merge, upsert, patch) regardless of whether a `.map()` function is supplied.
+
+### Added
+
+- **Tests**: Added `normalization.test.ts` covering automatic RecordID normalization across all query builder types.
+
+---
+
 ## [1.0.0-rc.2] - 2026-03-19
 
 ### Fixed
@@ -154,7 +250,7 @@
 
 ### Added - Core Features
 
-#### Authentication & Session Management
+#### 🔐 Authentication & Session Management
 
 - **Multi-Level Authentication**: Complete support for Root, Namespace, Database, and Scope-level authentication
 - **`signin()`** method supporting all credential types with comprehensive validation
@@ -175,7 +271,7 @@
   - `SignupError` - User registration failures
   - `ScopeAuthenticationError` - Scope-specific authentication issues
 
-#### Advanced CRUD Operations
+#### 🛠️ Advanced CRUD Operations
 
 - **`MergeQL`** class for partial data updates preserving existing fields
   - Smart merge operations that combine new data with existing records
@@ -192,7 +288,7 @@
   - Smart conditional logic handling both insert and update scenarios
   - Support for complex conflict resolution strategies
 
-#### Enhanced Query Builder Capabilities
+#### 📊 Enhanced Query Builder Capabilities
 
 - **`GroupByCapability`** mixin for advanced grouping functionality
   - Support for multiple grouping fields
@@ -215,7 +311,7 @@
   - New `page(pageNumber, pageSize)` method for simplified pagination
   - Integration with grouping and aggregation operations
 
-#### Architecture Improvements
+#### 🏗️ Architecture Improvements
 
 - **Capability-based mixin architecture** for composable query building
 - **Enhanced SurQLClient** with all new factory methods

@@ -1,4 +1,9 @@
 import { quoteValue, validateIdentifier } from './helpers.ts'
+import {
+  isSurqlFn as isSurqlFnImpl,
+  surqlFn as surqlFnImpl,
+  type SurrealFnValue as SurrealFnValueImpl,
+} from '../types/surqlFn.ts'
 
 /**
  * Base expression interface for SurrealQL expressions
@@ -98,127 +103,224 @@ export function as_(expr: Expression, alias: string): Expression {
   })
 }
 
+/**
+ * Dual-purpose value: renders as an SurrealQL expression AND carries the
+ * `__surqlFn` marker so it renders inline in `SET` clauses too.
+ */
+export interface FunctionValueExpression extends FunctionExpression, SurrealFnValueImpl {}
+
+/**
+ * Factory for a function-call value that is usable in both expression
+ * contexts (`SELECT`, `WHERE`) and field-value contexts (`SET`).
+ */
+function fnValue(name: string, ...args: Expression[]): FunctionValueExpression {
+  const rendered = `${name}(${args.map((a) => a.toSurQL()).join(', ')})`
+  return Object.freeze({
+    __surqlFn: true as const,
+    surql: rendered,
+    funcName: name,
+    args,
+    toSurQL(): string {
+      return this.surql
+    },
+  })
+}
+
+/**
+ * Coerce a string field name into an Expression.
+ * `field('x')` already exists; this is a lightweight shortcut used by
+ * the function factories so `mathSum('strength')` works without a
+ * manual `field(...)` wrap.
+ */
+function toExpr(value: Expression | string): Expression {
+  return typeof value === 'string' ? field(value) : value
+}
+
 // Aggregate functions
 
-/** COUNT aggregate */
-export function count(expr?: Expression): FunctionExpression {
-  return expr ? func('count', expr) : func('count')
+/**
+ * `count()` and `count(expr)` aggregate.
+ *
+ * With no argument renders `count()`, i.e. a row count.
+ * With an expression/field name renders `count(expr)`.
+ */
+export function count(expr?: Expression | string): FunctionValueExpression {
+  return expr !== undefined ? fnValue('count', toExpr(expr)) : fnValue('count')
+}
+
+/**
+ * `count(IF condition)` aggregate — `count()` rows where `condition` holds.
+ * Emits `count(IF <condition> THEN 1 END)` which is the canonical SurrealDB
+ * idiom for conditional counting inside GROUP BY / GROUP ALL queries.
+ */
+export function countIf(condition: Expression | string): FunctionValueExpression {
+  const cond = typeof condition === 'string' ? condition : condition.toSurQL()
+  const rendered = `count(IF ${cond} THEN 1 END)`
+  return Object.freeze({
+    __surqlFn: true as const,
+    surql: rendered,
+    funcName: 'count',
+    args: [raw(`IF ${cond} THEN 1 END`)] as Expression[],
+    toSurQL(): string {
+      return this.surql
+    },
+  })
 }
 
 /** SUM aggregate */
-export function sum_(expr: Expression): FunctionExpression {
-  return func('math::sum', expr)
+export function sum_(expr: Expression | string): FunctionValueExpression {
+  return fnValue('math::sum', toExpr(expr))
 }
 
-/** AVG aggregate */
-export function avg(expr: Expression): FunctionExpression {
-  return func('math::mean', expr)
+/** AVG aggregate (alias for `math::mean`) */
+export function avg(expr: Expression | string): FunctionValueExpression {
+  return fnValue('math::mean', toExpr(expr))
 }
 
 /** MIN aggregate */
-export function min_(expr: Expression): FunctionExpression {
-  return func('math::min', expr)
+export function min_(expr: Expression | string): FunctionValueExpression {
+  return fnValue('math::min', toExpr(expr))
 }
 
 /** MAX aggregate */
-export function max_(expr: Expression): FunctionExpression {
-  return func('math::max', expr)
+export function max_(expr: Expression | string): FunctionValueExpression {
+  return fnValue('math::max', toExpr(expr))
 }
 
-/** math::mean aggregate (alias for avg) */
-export function mathMean(expr: Expression): FunctionExpression {
-  return func('math::mean', expr)
+/** `math::mean()` aggregate. */
+export function mathMean(expr: Expression | string): FunctionValueExpression {
+  return fnValue('math::mean', toExpr(expr))
 }
 
-/** math::sum aggregate (alias for sum_) */
-export function mathSum(expr: Expression): FunctionExpression {
-  return func('math::sum', expr)
+/** `math::sum()` aggregate. */
+export function mathSum(expr: Expression | string): FunctionValueExpression {
+  return fnValue('math::sum', toExpr(expr))
 }
 
-/** math::max aggregate (alias for max_) */
-export function mathMax(expr: Expression): FunctionExpression {
-  return func('math::max', expr)
+/** `math::max()` aggregate. */
+export function mathMax(expr: Expression | string): FunctionValueExpression {
+  return fnValue('math::max', toExpr(expr))
 }
 
-/** math::min aggregate (alias for min_) */
-export function mathMin(expr: Expression): FunctionExpression {
-  return func('math::min', expr)
+/** `math::min()` aggregate. */
+export function mathMin(expr: Expression | string): FunctionValueExpression {
+  return fnValue('math::min', toExpr(expr))
 }
 
-/** ABS */
-export function abs_(expr: Expression): FunctionExpression {
-  return func('math::abs', expr)
+/** `math::abs()` — absolute value. */
+export function mathAbs(expr: Expression | string): FunctionValueExpression {
+  return fnValue('math::abs', toExpr(expr))
 }
 
-/** CEIL */
-export function ceil(expr: Expression): FunctionExpression {
-  return func('math::ceil', expr)
+/** `math::ceil()`. */
+export function mathCeil(expr: Expression | string): FunctionValueExpression {
+  return fnValue('math::ceil', toExpr(expr))
 }
 
-/** FLOOR */
-export function floor(expr: Expression): FunctionExpression {
-  return func('math::floor', expr)
+/** `math::floor()`. */
+export function mathFloor(expr: Expression | string): FunctionValueExpression {
+  return fnValue('math::floor', toExpr(expr))
 }
 
-/** ROUND */
-export function round_(expr: Expression): FunctionExpression {
-  return func('math::round', expr)
+/** `math::round()`. */
+export function mathRound(expr: Expression | string): FunctionValueExpression {
+  return fnValue('math::round', toExpr(expr))
+}
+
+/** Short-form aliases retained for pre-v1.3.0 callers. */
+export function abs_(expr: Expression | string): FunctionValueExpression {
+  return mathAbs(expr)
+}
+export function ceil(expr: Expression | string): FunctionValueExpression {
+  return mathCeil(expr)
+}
+export function floor(expr: Expression | string): FunctionValueExpression {
+  return mathFloor(expr)
+}
+export function round_(expr: Expression | string): FunctionValueExpression {
+  return mathRound(expr)
 }
 
 // String functions
 
-/** UPPER */
-export function upper(expr: Expression): FunctionExpression {
-  return func('string::uppercase', expr)
+/** `string::uppercase()`. */
+export function stringUpper(expr: Expression | string): FunctionValueExpression {
+  return fnValue('string::uppercase', toExpr(expr))
 }
 
-/** LOWER */
-export function lower(expr: Expression): FunctionExpression {
-  return func('string::lowercase', expr)
+/** `string::lowercase()`. */
+export function stringLower(expr: Expression | string): FunctionValueExpression {
+  return fnValue('string::lowercase', toExpr(expr))
 }
 
-/** CONCAT */
-export function concat(...exprs: Expression[]): FunctionExpression {
-  return func('string::concat', ...exprs)
+/** `string::concat()`. */
+export function stringConcat(...exprs: (Expression | string)[]): FunctionValueExpression {
+  return fnValue('string::concat', ...exprs.map(toExpr))
 }
 
-/** String length */
-export function stringLength(expr: Expression): FunctionExpression {
-  return func('string::len', expr)
+/** `string::len()`. */
+export function stringLen(expr: Expression | string): FunctionValueExpression {
+  return fnValue('string::len', toExpr(expr))
+}
+
+/** Short-form aliases retained for pre-v1.3.0 callers. */
+export function upper(expr: Expression | string): FunctionValueExpression {
+  return stringUpper(expr)
+}
+export function lower(expr: Expression | string): FunctionValueExpression {
+  return stringLower(expr)
+}
+export function concat(...exprs: (Expression | string)[]): FunctionValueExpression {
+  return stringConcat(...exprs)
+}
+export function stringLength(expr: Expression | string): FunctionValueExpression {
+  return stringLen(expr)
 }
 
 // Array functions
 
 /** Array length */
-export function arrayLength(expr: Expression): FunctionExpression {
-  return func('array::len', expr)
+export function arrayLength(expr: Expression | string): FunctionValueExpression {
+  return fnValue('array::len', toExpr(expr))
 }
 
 /** Array contains */
-export function arrayContains(arr: Expression, val: Expression): FunctionExpression {
-  return func('array::contains', arr, val)
+export function arrayContains(arr: Expression | string, val: Expression): FunctionValueExpression {
+  return fnValue('array::contains', toExpr(arr), val)
 }
 
 /** Array distinct */
-export function arrayDistinct(expr: Expression): FunctionExpression {
-  return func('array::distinct', expr)
+export function arrayDistinct(expr: Expression | string): FunctionValueExpression {
+  return fnValue('array::distinct', toExpr(expr))
 }
 
 /** Array flatten */
-export function arrayFlatten(expr: Expression): FunctionExpression {
-  return func('array::flatten', expr)
+export function arrayFlatten(expr: Expression | string): FunctionValueExpression {
+  return fnValue('array::flatten', toExpr(expr))
 }
 
 // Time functions
 
-/** Current time */
-export function timeNow(): FunctionExpression {
-  return func('time::now')
+/**
+ * `time::now()` — server-side current time.
+ *
+ * Usable in both expression contexts (SELECT/WHERE) and SET values.
+ *
+ * @example
+ * ```ts
+ * await updateQuery('user:alice', { lastLogin: timeNow() }).execute(db)
+ * ```
+ */
+export function timeNow(): FunctionValueExpression {
+  return fnValue('time::now')
 }
 
-/** Format time */
-export function timeFormat(expr: Expression, format: Expression): FunctionExpression {
-  return func('time::format', expr, format)
+/** `time::format()`. */
+export function timeFormat(
+  expr: Expression | string,
+  format: Expression | string,
+): FunctionValueExpression {
+  return fnValue('time::format', toExpr(expr), toExpr(format))
 }
 
 // Type functions
@@ -260,44 +362,9 @@ export function recordRef(table: string, id?: string): Expression {
   })
 }
 
-/**
- * Marker interface for SurrealDB server-side function values.
- * When used in create/update data, these render as raw SurrealQL
- * instead of being parameterized.
- */
-export interface SurrealFnValue {
-  readonly __surqlFn: true
-  readonly surql: string
-  toSurQL(): string
-}
-
-/**
- * Create a SurrealDB server-side function reference for use in field values.
- * When passed as a value in create/update operations, it will be rendered
- * as raw SurrealQL rather than parameterized.
- *
- * @param name - Fully qualified function name (e.g. 'time::now', 'math::floor')
- * @param args - Optional arguments as SurrealQL strings
- */
-export function surqlFn(name: string, ...args: string[]): SurrealFnValue {
-  const argsStr = args.join(', ')
-  return Object.freeze({
-    __surqlFn: true as const,
-    surql: `${name}(${argsStr})`,
-    toSurQL(): string {
-      return this.surql
-    },
-  })
-}
-
-/**
- * Type guard to check if a value is a SurrealFnValue
- */
-export function isSurqlFn(value: unknown): value is SurrealFnValue {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    '__surqlFn' in value &&
-    (value as SurrealFnValue).__surqlFn === true
-  )
-}
+// Re-export from canonical home in `../types/surqlFn.ts`.
+// Retained here for backwards compatibility with v1.2.x imports from
+// `@oneiriq/surql/src/query/expressions.ts`.
+export type SurrealFnValue = SurrealFnValueImpl
+export const surqlFn = surqlFnImpl
+export const isSurqlFn = isSurqlFnImpl

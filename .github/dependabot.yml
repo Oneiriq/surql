@@ -1,0 +1,29 @@
+# Dependabot config.
+#
+# Deno / JSR is NOT yet supported by Dependabot as a package ecosystem
+# (no `deno` or `jsr` value for `package-ecosystem`). `npm:` specifiers
+# used via Deno's compatibility layer are declared in `deno.json` and
+# locked in `deno.lock`, neither of which Dependabot can parse. For
+# now, those specifiers are covered by:
+#   - `.github/workflows/audit.yml` (daily npm audit synthesized from
+#     `deno.json`)
+#   - `.github/workflows/nightly.yml` (daily Deno stable + canary run)
+# Revisit once Dependabot adds Deno / JSR support.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: 'America/Anchorage'
+    open-pull-requests-limit: 5
+    groups:
+      actions-minor-patch:
+        update-types:
+          - minor
+          - patch
+    labels:
+      - dependencies
+      - github-actions

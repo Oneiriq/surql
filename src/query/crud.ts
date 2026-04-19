@@ -1,7 +1,9 @@
 import type { Surreal } from 'surrealdb'
 import { intoSurQlError } from '../utils/surrealError.ts'
-import { escapeTable, quoteValue } from './helpers.ts'
-import { type ListResult, records } from './results.ts'
+import { escapeTable, quoteValue, validateIdentifier } from './helpers.ts'
+import { extractResult, type ListResult, records } from './results.ts'
+import { resolveRecordTarget, type SurrealFnValue } from '../types/surqlFn.ts'
+import type { Expression } from './expressions.ts'
 
 /**
  * Create a single record
@@ -50,16 +52,41 @@ export async function createRecords<T = Record<string, unknown>>(
 }
 
 /**
- * Get a record by ID
+ * Resolve a CRUD target from either `(table, id)` or a `SurrealFnValue`
+ * produced by `typeRecord(table, id)`. Returns `table:id` ready to splice
+ * into a SurrealQL statement.
+ */
+function resolveTarget(tableOrRef: string | SurrealFnValue, id?: string): string {
+  if (typeof tableOrRef === 'string') {
+    const tableName = escapeTable(tableOrRef)
+    return id !== undefined ? `${tableName}:${id}` : tableName
+  }
+  return resolveRecordTarget(tableOrRef)
+}
+
+/**
+ * Get a record by ID.
+ *
+ * Accepts either the traditional `(db, table, id)` form or a `typeRecord()`
+ * reference via `(db, ref)`.
  */
 export async function getRecord<T = Record<string, unknown>>(
   db: Surreal,
   table: string,
   id: string,
+): Promise<T | null>
+export async function getRecord<T = Record<string, unknown>>(
+  db: Surreal,
+  ref: SurrealFnValue,
+): Promise<T | null>
+export async function getRecord<T = Record<string, unknown>>(
+  db: Surreal,
+  tableOrRef: string | SurrealFnValue,
+  id?: string,
 ): Promise<T | null> {
-  const tableName = escapeTable(table)
   try {
-    const sql = `SELECT * FROM ${tableName}:${id}`
+    const target = resolveTarget(tableOrRef, id)
+    const sql = `SELECT * FROM ${target}`
     const results = await db.query<T[]>(sql) as unknown as T[][]
     return results[0]?.[0] ?? null
   } catch (e) {
@@ -68,19 +95,43 @@ export async function getRecord<T = Record<string, unknown>>(
 }
 
 /**
- * Update a record
+ * Update a record.
+ *
+ * Accepts either `(db, table, id, data)` or `(db, ref, data)` where `ref`
+ * is produced by `typeRecord()`.
  */
 export async function updateRecord<T = Record<string, unknown>>(
   db: Surreal,
   table: string,
   id: string,
   data: Record<string, unknown>,
+): Promise<T>
+export async function updateRecord<T = Record<string, unknown>>(
+  db: Surreal,
+  ref: SurrealFnValue,
+  data: Record<string, unknown>,
+): Promise<T>
+export async function updateRecord<T = Record<string, unknown>>(
+  db: Surreal,
+  tableOrRef: string | SurrealFnValue,
+  idOrData: string | Record<string, unknown>,
+  maybeData?: Record<string, unknown>,
 ): Promise<T> {
-  const tableName = escapeTable(table)
   try {
+    let target: string
+    let data: Record<string, unknown>
+    if (typeof tableOrRef === 'string' && typeof idOrData === 'string') {
+      target = resolveTarget(tableOrRef, idOrData)
+      data = maybeData as Record<string, unknown>
+    } else if (typeof tableOrRef !== 'string') {
+      target = resolveTarget(tableOrRef)
+      data = idOrData as Record<string, unknown>
+    } else {
+      throw new Error('updateRecord: invalid arguments')
+    }
     const entries = Object.entries(data)
     const setClauses = entries.map(([k, v]) => `${k} = ${quoteValue(v)}`).join(', ')
-    const sql = `UPDATE ${tableName}:${id} SET ${setClauses}`
+    const sql = `UPDATE ${target} SET ${setClauses}`
     const results = await db.query<T[]>(sql) as unknown as T[][]
     const result = results[0]?.[0]
     if (!result) throw new Error('Update returned no result')
@@ -255,6 +306,89 @@ export async function last<T = Record<string, unknown>>(
     return results[0]?.[0] ?? null
   } catch (e) {
     throw intoSurQlError('last failed:', e)
+  }
+}
+
+/**
+ * Options for `aggregateRecords()`.
+ */
+export interface AggregateRecordsOptions<TFields extends Record<string, Expression>> {
+  /** Table to aggregate over. */
+  table: string
+  /** Named SELECT expressions — each key becomes a column alias. */
+  select: TFields
+  /** GROUP BY field list. Mutually exclusive with `groupAll`. */
+  groupBy?: readonly string[]
+  /** `GROUP ALL` — aggregate the entire result set into one row. */
+  groupAll?: boolean
+  /** Optional WHERE predicate (raw SurrealQL string). */
+  where?: string
+  /** Optional ORDER BY clause. */
+  orderBy?: readonly { field: string; direction?: 'ASC' | 'DESC' }[]
+  /** Optional LIMIT. */
+  limit?: number
+  /** Active Surreal client. */
+  client: Surreal
+}
+
+/**
+ * Aggregate rows over a table using named SELECT expressions.
+ *
+ * Returns an array of row objects keyed by the names in `select`. When
+ * `groupAll: true` the array always has exactly one element.
+ *
+ * @example
+ * ```ts
+ * import { aggregateRecords, count, mathSum } from '@oneiriq/surql'
+ *
+ * const counts = await aggregateRecords({
+ *   table: 'memory_entry',
+ *   select: { count: count(), totalStrength: mathSum('strength') },
+ *   groupBy: ['network'],
+ *   client: db,
+ * })
+ * ```
+ */
+export async function aggregateRecords<TFields extends Record<string, Expression>>(
+  options: AggregateRecordsOptions<TFields>,
+): Promise<Array<Record<keyof TFields, unknown> & Record<string, unknown>>> {
+  const { table, select, groupBy, groupAll, where, orderBy, limit, client } = options
+  if (!select || Object.keys(select).length === 0) {
+    throw new Error('aggregateRecords: `select` must contain at least one expression')
+  }
+  if (groupAll && groupBy && groupBy.length > 0) {
+    throw new Error('aggregateRecords: `groupAll` and `groupBy` are mutually exclusive')
+  }
+  const tableName = escapeTable(table)
+  try {
+    const selectParts: string[] = []
+    // Include group-by fields in the projection so callers can read them.
+    if (groupBy) {
+      for (const f of groupBy) {
+        validateIdentifier(f)
+        selectParts.push(f)
+      }
+    }
+    for (const [alias, expr] of Object.entries(select)) {
+      validateIdentifier(alias)
+      selectParts.push(`${expr.toSurQL()} AS ${alias}`)
+    }
+    let sql = `SELECT ${selectParts.join(', ')} FROM ${tableName}`
+    if (where) sql += ` WHERE ${where}`
+    if (groupAll) {
+      sql += ' GROUP ALL'
+    } else if (groupBy && groupBy.length > 0) {
+      sql += ` GROUP BY ${groupBy.join(', ')}`
+    }
+    if (orderBy && orderBy.length > 0) {
+      const orders = orderBy.map((o) => `${o.field} ${o.direction ?? 'ASC'}`)
+      sql += ` ORDER BY ${orders.join(', ')}`
+    }
+    if (limit !== undefined) sql += ` LIMIT ${limit}`
+    const raw = await client.query(sql)
+    return extractResult<Record<keyof TFields, unknown> & Record<string, unknown>>(raw)
+  } catch (e) {
+    throw intoSurQlError('aggregateRecords failed:', e)
   }
 }
 
