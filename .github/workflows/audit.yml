@@ -1,0 +1,85 @@
+name: Security Audit
+
+# Deno / JSR does not yet ship a first-party `deno audit` comparable to
+# `cargo audit` or `govulncheck`. `@oneiriq/surql` is a pure JSR module
+# that pulls a handful of npm specifiers (`zod`, `surrealdb`) via
+# Deno's `npm:` compatibility layer. To keep parity with surql-rs /
+# surql-go / surql-py, we synthesize a package.json listing just the
+# npm specifiers from `deno.json` and run `npm audit` against it.
+#
+# The synthesized manifest is discarded after the run -- no lockfile
+# is committed. JSR-only updates are still caught by `nightly.yml` via
+# the Deno version matrix.
+
+on:
+  pull_request:
+    branches:
+      - main
+      - 'release/**'
+    paths:
+      - 'deno.json'
+      - 'deno.lock'
+      - '.github/workflows/audit.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'deno.json'
+      - 'deno.lock'
+      - '.github/workflows/audit.yml'
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  audit:
+    name: npm audit (npm: specifiers from deno.json)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Synthesize package.json from deno.json npm: imports
+        run: |
+          node <<'EOF'
+          const fs = require('node:fs')
+          const deno = JSON.parse(fs.readFileSync('deno.json', 'utf8'))
+          const imports = deno.imports ?? {}
+          const deps = {}
+          for (const [_, spec] of Object.entries(imports)) {
+            if (typeof spec !== 'string') continue
+            if (!spec.startsWith('npm:')) continue
+            // strip "npm:", then split "name@range" honoring scoped packages
+            const bare = spec.slice(4)
+            const at = bare.lastIndexOf('@')
+            if (at <= 0) {
+              deps[bare] = '*'
+              continue
+            }
+            const name = bare.slice(0, at)
+            const range = bare.slice(at + 1).split('/')[0]
+            // keep the tightest pin we saw for a given name
+            if (!deps[name] || deps[name] === '*') {
+              deps[name] = range
+            }
+          }
+          const pkg = {
+            name: 'surql-audit-synth',
+            version: '0.0.0',
+            private: true,
+            dependencies: deps
+          }
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2))
+          console.log('Synthesized package.json:')
+          console.log(JSON.stringify(pkg, null, 2))
+          EOF
+
+      - name: Run npm audit
+        run: npm audit --audit-level=moderate --omit=dev
