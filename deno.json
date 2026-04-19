@@ -7,9 +7,9 @@
 	"exports": "./mod.ts",
 
 	"tasks": {
-		"test": "deno test --ignore='src/test/auth.test.ts' --allow-read --allow-write --allow-net --allow-sys --allow-env",
-		"test:watch": "deno test --ignore='src/test/auth.test.ts' --allow-read --allow-write --allow-net --allow-sys --allow-env --watch",
-		"test:coverage": "deno test --ignore='src/test/auth.test.ts' --allow-read --allow-write --allow-net --allow-sys --allow-env --coverage=coverage/",
+		"test": "deno test --ignore='src/test/auth.test.ts' --allow-read --allow-write --allow-net --allow-sys --allow-env --allow-run=git",
+		"test:watch": "deno test --ignore='src/test/auth.test.ts' --allow-read --allow-write --allow-net --allow-sys --allow-env --allow-run=git --watch",
+		"test:coverage": "deno test --ignore='src/test/auth.test.ts' --allow-read --allow-write --allow-net --allow-sys --allow-env --allow-run=git --coverage=coverage/",
 		"coverage": "deno coverage coverage/ --html",
 		"bench": "deno bench --allow-read --allow-write --allow-net --allow-sys",
 		"build:npm": "deno run -A scripts/build_npm.ts"
