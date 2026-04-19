@@ -69,6 +69,13 @@ function generateIndexSql(tableName: string, idx: IndexDefinition): string {
       if (idx.mtreeVectorType) sql += ` TYPE ${idx.mtreeVectorType}`
       if (idx.mtreeCapacity) sql += ` CAPACITY ${idx.mtreeCapacity}`
       break
+    case IndexType.HNSW:
+      sql += ` HNSW DIMENSION ${idx.mtreeDimension}`
+      if (idx.hnswDistance) sql += ` DIST ${idx.hnswDistance}`
+      if (idx.mtreeVectorType) sql += ` TYPE ${idx.mtreeVectorType}`
+      if (idx.hnswEfc !== undefined) sql += ` EFC ${idx.hnswEfc}`
+      if (idx.hnswM !== undefined) sql += ` M ${idx.hnswM}`
+      break
   }
 
   return sql + ';'
