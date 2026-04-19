@@ -23,7 +23,7 @@ jobs:
           docker run -d \
             --name surrealdb \
             -p 8000:8000 \
-            surrealdb/surrealdb:latest \
+            surrealdb/surrealdb:v3.0.5 \
             start --user root --pass root memory
           for i in $(seq 1 20); do
             if curl -sf http://localhost:8000/health; then
