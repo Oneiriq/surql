@@ -71,17 +71,21 @@ nav:
   - Getting Started:
       - Installation: installation.md
       - Quick Start: quickstart.md
+      - Upgrade Guide: migration.md
   - Guides:
       - Schema Definition: schema.md
       - Migrations: migrations.md
       - Query Builder: queries.md
+      - Query UX: query-ux.md
       - Query Hints: query_hints.md
       - Caching: caching.md
       - Streaming: streaming.md
       - Orchestration: orchestration.md
       - Versioning & Rollback: versioning_rollback.md
+      - SurrealDB v3 Patterns: v3-patterns.md
   - Reference:
       - API: api/index.md
+      - CLI: cli.md
       - Visualization: visualization.md
   - Examples: examples/index.md
   - Changelog: changelog.md
