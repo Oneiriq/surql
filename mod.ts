@@ -10,6 +10,7 @@ export * from './src/schema/mod.ts'
 export * from './src/utils/mod.ts'
 export * from './src/client.ts'
 export * from './src/constants.ts'
+export * from './src/settings.ts'
 export * from './src/types/mod.ts'
 
 /** SurrealDB v2 types for convenience */
