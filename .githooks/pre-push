@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# pre-push: run the same checks as .github/workflows/test.yml and check.yml
+# before the push reaches GitHub Actions. CI minutes cost money — fail
+# locally first.
+#
+# Opt in to the full test suite (which requires a running SurrealDB v3.0.5
+# container) by exporting SURQL_PRE_PUSH_INTEGRATION=1:
+#
+#   docker run -d -p 8000:8000 --name surrealdb surrealdb/surrealdb:v3.0.5 \
+#     start --user root --pass root memory
+#
+# Bypass (rarely): `git push --no-verify` — only when explicitly authorised.
+
+set -euo pipefail
+
+echo "[pre-push] deno task fmt --check"
+deno task fmt --check
+
+echo "[pre-push] deno task lint"
+deno task lint
+
+echo "[pre-push] deno task check"
+deno task check
+
+if [[ "${SURQL_PRE_PUSH_INTEGRATION:-0}" == "1" ]]; then
+  echo "[pre-push] deno task test (SURQL_PRE_PUSH_INTEGRATION=1, live SurrealDB)"
+  deno task test
+else
+  echo "[pre-push] skipping test suite (requires running SurrealDB; set SURQL_PRE_PUSH_INTEGRATION=1 to run)"
+fi
+
+echo "[pre-push] all checks passed"

@@ -27,3 +27,12 @@ export {
   or_,
 } from './operators.ts'
 export { checkReservedWord, EDGE_ALLOWED_RESERVED, SURREAL_RESERVED_WORDS } from './reserved.ts'
+export {
+  isSurqlFn,
+  resolveRecordTarget,
+  type SurealFn,
+  surqlFn,
+  type SurrealFnValue,
+  typeRecord,
+  typeThing,
+} from './surqlFn.ts'

@@ -3,6 +3,11 @@
 !.github/
 !.github/**
 
+!.githooks/
+!.githooks/**
+
+!CONTRIBUTING.md
+
 !examples/
 !examples/**
 
