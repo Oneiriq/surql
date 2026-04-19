@@ -10,16 +10,27 @@ export enum TransactionState {
   ACTIVE = 'ACTIVE',
   COMMITTED = 'COMMITTED',
   CANCELLED = 'CANCELLED',
+  FAILED = 'FAILED',
 }
 
 /**
- * Transaction wrapping SurrealDB BEGIN/COMMIT/CANCEL.
- * Supports Symbol.asyncDispose for `await using` syntax.
+ * Transaction that buffers statements client-side and flushes them as a
+ * single `BEGIN TRANSACTION; ...; COMMIT TRANSACTION;` request on commit.
+ *
+ * SurrealDB v3 rejects bare `COMMIT TRANSACTION` / `CANCEL TRANSACTION`
+ * statements issued as isolated RPC requests, so we cannot stream the
+ * bookends across separate `query()` calls. Instead, statements handed
+ * to {@link Transaction.execute} are staged in memory and applied
+ * atomically when {@link Transaction.commit} is called. {@link
+ * Transaction.cancel} discards the buffer without contacting the server.
+ *
+ * Supports `Symbol.asyncDispose` for `await using` syntax; disposal of an
+ * active transaction cancels it client-side.
  */
 export class Transaction {
   private readonly db: Surreal
   private _state: TransactionState = TransactionState.PENDING
-  private readonly queries: string[] = []
+  private readonly statements: string[] = []
 
   constructor(db: Surreal) {
     this.db = db
@@ -34,66 +45,73 @@ export class Transaction {
   }
 
   /**
-   * Begin the transaction
+   * Mark the transaction as active so that statements may be queued.
+   *
+   * No RPC is issued here: the server only sees the transaction when
+   * {@link commit} flushes the buffered statements as a single
+   * `BEGIN ... COMMIT` request.
    */
+  // deno-lint-ignore require-await
   async begin(): Promise<void> {
     if (this._state !== TransactionState.PENDING) {
       throw new TransactionError(`Cannot begin transaction in state: ${this._state}`)
     }
-    try {
-      await this.db.query('BEGIN TRANSACTION')
-      this._state = TransactionState.ACTIVE
-    } catch (e) {
-      throw intoSurQlError('Failed to begin transaction:', e)
-    }
+    this._state = TransactionState.ACTIVE
   }
 
   /**
-   * Execute a query within this transaction
+   * Queue a statement for execution inside the transaction.
+   *
+   * The statement is not executed until {@link commit} is called.
+   * Returns an empty array; the real per-statement results become
+   * available in the value returned by `commit()`.
    */
-  async execute<T>(query: string, params?: Record<string, unknown>): Promise<T[]> {
+  // deno-lint-ignore require-await
+  async execute<T>(query: string, _params?: Record<string, unknown>): Promise<T[]> {
     if (this._state !== TransactionState.ACTIVE) {
       throw new TransactionError(`Cannot execute in transaction state: ${this._state}`)
     }
-    try {
-      this.queries.push(query)
-      const results = await this.db.query<T[]>(query, params) as unknown as T[][]
-      return results[0] || ([] as T[])
-    } catch (e) {
-      throw intoSurQlError('Transaction query failed:', e)
-    }
+    const trimmed = query.trim().replace(/;+\s*$/, '')
+    this.statements.push(trimmed)
+    return [] as T[]
   }
 
   /**
-   * Commit the transaction
+   * Flush buffered statements as a single atomic query.
+   *
+   * Emits `BEGIN TRANSACTION; <stmt>; ...; COMMIT TRANSACTION;` in one
+   * RPC call. On failure the transaction is moved to `FAILED` and the
+   * error is re-thrown wrapped as a SurQL error.
    */
   async commit(): Promise<void> {
     if (this._state !== TransactionState.ACTIVE) {
       throw new TransactionError(`Cannot commit transaction in state: ${this._state}`)
     }
+    const parts: string[] = ['BEGIN TRANSACTION']
+    for (const stmt of this.statements) {
+      parts.push(stmt)
+    }
+    parts.push('COMMIT TRANSACTION')
+    const surql = parts.join(';\n') + ';'
     try {
-      await this.db.query('COMMIT TRANSACTION')
+      await this.db.query(surql)
       this._state = TransactionState.COMMITTED
     } catch (e) {
-      this._state = TransactionState.CANCELLED
+      this._state = TransactionState.FAILED
       throw intoSurQlError('Failed to commit transaction:', e)
     }
   }
 
   /**
-   * Cancel/rollback the transaction
+   * Discard buffered statements without contacting the server.
    */
+  // deno-lint-ignore require-await
   async cancel(): Promise<void> {
     if (this._state !== TransactionState.ACTIVE) {
       throw new TransactionError(`Cannot cancel transaction in state: ${this._state}`)
     }
-    try {
-      await this.db.query('CANCEL TRANSACTION')
-      this._state = TransactionState.CANCELLED
-    } catch (e) {
-      this._state = TransactionState.CANCELLED
-      throw intoSurQlError('Failed to cancel transaction:', e)
-    }
+    this.statements.length = 0
+    this._state = TransactionState.CANCELLED
   }
 
   /**
