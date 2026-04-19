@@ -59,6 +59,19 @@ export {
   RollbackSafety,
 } from './rollback.ts'
 export {
+  checkSchemaDrift,
+  type CheckSchemaDriftOptions,
+  defaultSchemaFilter,
+  type DriftIssue,
+  type DriftReport,
+  type DriftSeverity,
+  generatePrecommitConfig,
+  type GeneratePrecommitConfigOptions,
+  getStagedSchemaFiles,
+} from './hooks.ts'
+export { SquashError, squashMigrations, type SquashOptions, type SquashResult } from './squash.ts'
+export { type WatchCallback, type WatchHandle, watchSchema, type WatchSchemaOptions } from './watcher.ts'
+export {
   compareSnapshots,
   createSnapshot,
   deserializeSnapshot,
