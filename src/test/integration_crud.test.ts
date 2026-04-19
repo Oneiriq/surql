@@ -473,7 +473,6 @@ describe('Integration: schema parser', () => {
   it('fetchDbInfo should return database info with tables key', async () => {
     await db.query('DEFINE TABLE parser_table SCHEMALESS')
     const info = await fetchDbInfo(db)
-    assertEquals(typeof info.tables, 'object')
     assert('parser_table' in info.tables)
   })
 
@@ -485,16 +484,14 @@ describe('Integration: schema parser', () => {
     `)
     const info = await fetchTableInfo(db, 'parser_table')
     assertEquals(info.name, 'parser_table')
-    assertEquals(typeof info.fields, 'object')
-    assertEquals(typeof info.indexes, 'object')
-    assert('name' in info.fields)
-    assert('idx_name' in info.indexes)
+    assert(info.fields.some((f) => f.name === 'name'))
+    assert(info.indexes.some((i) => i.name === 'idx_name'))
   })
 
   it('fetchTableInfo should return empty collections for schemaless table', async () => {
     await db.query('DEFINE TABLE parser_table SCHEMALESS')
     const info = await fetchTableInfo(db, 'parser_table')
-    assertEquals(Object.keys(info.fields).length, 0)
+    assertEquals(info.fields.length, 0)
   })
 })
 

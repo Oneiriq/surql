@@ -240,36 +240,34 @@ describe('validateSchema', () => {
 
 describe('parseTableInfo', () => {
   it('should parse fields from raw response using "fields" key', () => {
-    const raw = { fields: { name: 'DEFINE FIELD name ON TABLE t TYPE string' }, indexes: {}, events: {}, lives: {} }
-    const info = parseTableInfo(raw)
-    assertEquals(typeof info.fields, 'object')
-    assert('name' in info.fields)
+    const raw = { tb: 'DEFINE TABLE t', fields: { name: 'DEFINE FIELD name ON TABLE t TYPE string' } }
+    const info = parseTableInfo('t', raw)
+    assert(info.fields.some((f) => f.name === 'name'))
   })
 
   it('should parse fields from raw response using "fd" key (SurrealDB v1 compat)', () => {
-    const raw = { fd: { email: 'DEFINE FIELD email ON TABLE t TYPE string' }, ix: {}, ev: {}, lv: {} }
-    const info = parseTableInfo(raw)
-    assert('email' in info.fields)
+    const raw = { tb: 'DEFINE TABLE t', fd: { email: 'DEFINE FIELD email ON TABLE t TYPE string' } }
+    const info = parseTableInfo('t', raw)
+    assert(info.fields.some((f) => f.name === 'email'))
   })
 
-  it('should default to empty objects when keys are missing', () => {
-    const info = parseTableInfo({})
-    assertEquals(typeof info.fields, 'object')
-    assertEquals(Object.keys(info.fields).length, 0)
-    assertEquals(Object.keys(info.indexes).length, 0)
-    assertEquals(Object.keys(info.events).length, 0)
+  it('should default to empty arrays when keys are missing', () => {
+    const info = parseTableInfo('t', {})
+    assertEquals(info.fields.length, 0)
+    assertEquals(info.indexes.length, 0)
+    assertEquals(info.events.length, 0)
   })
 })
 
 describe('parseDbInfo', () => {
   it('should parse tables from raw response using "tables" key', () => {
-    const raw = { tables: { users: 'DEFINE TABLE users' }, accesses: {}, analyzers: {}, functions: {}, params: {} }
+    const raw = { tables: { users: 'DEFINE TABLE users SCHEMAFULL' } }
     const info = parseDbInfo(raw)
     assert('users' in info.tables)
   })
 
   it('should parse tables from raw response using "tb" key (SurrealDB v1 compat)', () => {
-    const raw = { tb: { posts: 'DEFINE TABLE posts' }, ac: {}, az: {}, fn: {}, pa: {} }
+    const raw = { tb: { posts: 'DEFINE TABLE posts SCHEMALESS' } }
     const info = parseDbInfo(raw)
     assert('posts' in info.tables)
   })
