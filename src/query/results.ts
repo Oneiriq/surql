@@ -207,3 +207,18 @@ export function extractScalar<T>(raw: unknown, key?: string, defaultValue?: T): 
 export function hasResults(raw: unknown): boolean {
   return extractResult(raw).length > 0
 }
+
+/**
+ * Alias for `extractResult` — parity with surql-py `extract_many` and the
+ * public naming documented in the Kushtaka usage guide.
+ */
+export function extractMany<T>(raw: unknown): T[] {
+  return extractResult<T>(raw)
+}
+
+/**
+ * Alias for `hasResults` — parity with surql-py `has_result`.
+ */
+export function hasResult(raw: unknown): boolean {
+  return hasResults(raw)
+}
