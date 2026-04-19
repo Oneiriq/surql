@@ -7,9 +7,9 @@
 	"exports": "./mod.ts",
 
 	"tasks": {
-		"test": "deno test --ignore='src/test/auth.test.ts' --allow-read --allow-write --allow-net --allow-sys --allow-env",
-		"test:watch": "deno test --ignore='src/test/auth.test.ts' --allow-read --allow-write --allow-net --allow-sys --allow-env --watch",
-		"test:coverage": "deno test --ignore='src/test/auth.test.ts' --allow-read --allow-write --allow-net --allow-sys --allow-env --coverage=coverage/",
+		"test": "deno test --ignore='src/test/auth.test.ts' --allow-read --allow-write --allow-net --allow-sys --allow-env --allow-run=git",
+		"test:watch": "deno test --ignore='src/test/auth.test.ts' --allow-read --allow-write --allow-net --allow-sys --allow-env --allow-run=git --watch",
+		"test:coverage": "deno test --ignore='src/test/auth.test.ts' --allow-read --allow-write --allow-net --allow-sys --allow-env --allow-run=git --coverage=coverage/",
 		"coverage": "deno coverage coverage/ --html",
 		"bench": "deno bench --allow-read --allow-write --allow-net --allow-sys",
 		"build:npm": "deno run -A scripts/build_npm.ts"
@@ -67,10 +67,12 @@
 		"@std/testing/mock": "jsr:@std/testing@^1.0.0/mock",
 		"@std/streams": "jsr:@std/streams@^1.0.0",
 		"@std/async": "jsr:@std/async@^1.0.0",
+		"@std/yaml": "jsr:@std/yaml@^1.0.0",
+		"@std/toml": "jsr:@std/toml@^1.0.0",
 		"zod": "npm:zod@^4.0.0",
 		"zod/v4/core": "npm:zod@^4.0.0/v4/core",
 		"surrealdb": "npm:surrealdb@^2.0.0"
 	},
 
-	"exclude": ["dist/", "npm/", "examples/"]
+	"exclude": [".claude/", "dist/", "npm/", "examples/"]
 }
