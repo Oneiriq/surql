@@ -27,6 +27,7 @@ import {
   withFields,
   withFromTable,
   withIndexes,
+  withPermissions,
   withToTable,
 } from '../schema/mod.ts'
 
@@ -150,6 +151,55 @@ describe('Schema System', () => {
       const sql = generateSchemaSql({ tables, edges })
       assertStringIncludes(sql, 'DEFINE TABLE users')
       assertStringIncludes(sql, 'DEFINE TABLE follows')
+    })
+
+    it('should emit DEFINE TABLE IF NOT EXISTS when ifNotExists is true', () => {
+      const t = withFields(tableSchema('users'), stringField('name'))
+      const sql = generateTableSql(t, { ifNotExists: true })
+      assertStringIncludes(sql, 'DEFINE TABLE IF NOT EXISTS users SCHEMAFULL')
+      // Field/index/event sub-statements are unaffected by the table flag.
+      assertStringIncludes(sql, 'DEFINE FIELD name ON TABLE users TYPE string')
+    })
+
+    it('should omit IF NOT EXISTS by default on DEFINE TABLE', () => {
+      const t = tableSchema('users')
+      const sql = generateTableSql(t)
+      assertEquals(sql.includes('IF NOT EXISTS'), false)
+    })
+
+    it('should apply IF NOT EXISTS to the secondary permissions DEFINE TABLE line', () => {
+      const t = withPermissions(tableSchema('users'), { select: 'WHERE user = $auth' })
+      const sql = generateTableSql(t, { ifNotExists: true })
+      // Both the primary and the permissions line must carry IF NOT EXISTS.
+      const occurrences = sql.match(/DEFINE TABLE IF NOT EXISTS users/g) ?? []
+      assertEquals(occurrences.length, 2)
+      assertStringIncludes(sql, 'PERMISSIONS FOR select WHERE user = $auth')
+    })
+
+    it('should emit DEFINE TABLE IF NOT EXISTS ... TYPE RELATION for edges', () => {
+      const e = withToTable(withFromTable(edgeSchema('follows'), 'users'), 'users')
+      const sql = generateEdgeSql(e, { ifNotExists: true })
+      assertStringIncludes(sql, 'DEFINE TABLE IF NOT EXISTS follows TYPE RELATION FROM users TO users')
+    })
+
+    it('should omit IF NOT EXISTS by default on DEFINE TABLE (edge)', () => {
+      const e = edgeSchema('follows')
+      const sql = generateEdgeSql(e)
+      assertEquals(sql.includes('IF NOT EXISTS'), false)
+    })
+
+    it('should propagate ifNotExists through generateSchemaSql', () => {
+      const tables = [withFields(tableSchema('users'), stringField('name'))]
+      const edges = [typedEdge('follows', 'users', 'users')]
+      const sql = generateSchemaSql({ tables, edges, ifNotExists: true })
+      assertStringIncludes(sql, 'DEFINE TABLE IF NOT EXISTS users')
+      assertStringIncludes(sql, 'DEFINE TABLE IF NOT EXISTS follows')
+    })
+
+    it('should not emit IF NOT EXISTS from generateSchemaSql by default', () => {
+      const tables = [withFields(tableSchema('users'), stringField('name'))]
+      const sql = generateSchemaSql({ tables })
+      assertEquals(sql.includes('IF NOT EXISTS'), false)
     })
   })
 

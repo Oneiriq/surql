@@ -79,12 +79,18 @@ function generateEventSql(tableName: string, evt: EventDefinition): string {
 }
 
 /**
- * Generate SurrealQL DDL for a table definition
+ * Generate SurrealQL DDL for a table definition.
+ *
+ * Pass `ifNotExists: true` to emit `DEFINE TABLE IF NOT EXISTS ...` so the
+ * statement is idempotent against an existing schema. The flag also applies
+ * to the secondary `DEFINE TABLE ... PERMISSIONS` line when table-level
+ * permissions are configured.
  */
-export function generateTableSql(table: TableDefinition): string {
+export function generateTableSql(table: TableDefinition, options: { ifNotExists?: boolean } = {}): string {
+  const ine = options.ifNotExists ? ' IF NOT EXISTS' : ''
   const lines: string[] = []
 
-  lines.push(`DEFINE TABLE ${table.name} ${table.mode};`)
+  lines.push(`DEFINE TABLE${ine} ${table.name} ${table.mode};`)
 
   for (const field of table.fields) {
     lines.push(generateFieldSql(table.name, field))
@@ -105,7 +111,7 @@ export function generateTableSql(table: TableDefinition): string {
     if (table.permissions.update) perms.push(`FOR update ${table.permissions.update}`)
     if (table.permissions.delete) perms.push(`FOR delete ${table.permissions.delete}`)
     if (perms.length > 0) {
-      lines.push(`DEFINE TABLE ${table.name} PERMISSIONS ${perms.join(', ')};`)
+      lines.push(`DEFINE TABLE${ine} ${table.name} PERMISSIONS ${perms.join(', ')};`)
     }
   }
 
@@ -113,12 +119,16 @@ export function generateTableSql(table: TableDefinition): string {
 }
 
 /**
- * Generate SurrealQL DDL for an edge definition
+ * Generate SurrealQL DDL for an edge definition.
+ *
+ * Pass `ifNotExists: true` to emit `DEFINE TABLE IF NOT EXISTS ... TYPE RELATION`
+ * for idempotent schema application.
  */
-export function generateEdgeSql(edge: EdgeDefinition): string {
+export function generateEdgeSql(edge: EdgeDefinition, options: { ifNotExists?: boolean } = {}): string {
+  const ine = options.ifNotExists ? ' IF NOT EXISTS' : ''
   const lines: string[] = []
 
-  let tableDef = `DEFINE TABLE ${edge.name} TYPE ${edge.mode}`
+  let tableDef = `DEFINE TABLE${ine} ${edge.name} TYPE ${edge.mode}`
   if (edge.fromTable) tableDef += ` FROM ${edge.fromTable}`
   if (edge.toTable) tableDef += ` TO ${edge.toTable}`
   lines.push(tableDef + ';')
@@ -139,11 +149,19 @@ export function generateEdgeSql(edge: EdgeDefinition): string {
 }
 
 /**
- * Generate SurrealQL DDL for an access definition
+ * Generate SurrealQL DDL for an access definition.
+ *
+ * Pass `ifNotExists: true` to emit `DEFINE ACCESS IF NOT EXISTS ...` so the
+ * statement can be re-run safely.
  */
-export function generateAccessSql(access: AccessDefinition, level: string = 'DATABASE'): string {
+export function generateAccessSql(
+  access: AccessDefinition,
+  level: string = 'DATABASE',
+  options: { ifNotExists?: boolean } = {},
+): string {
+  const ine = options.ifNotExists ? ' IF NOT EXISTS' : ''
   if (access.type === AccessType.JWT && access.jwt) {
-    let sql = `DEFINE ACCESS ${access.name} ON ${level} TYPE JWT`
+    let sql = `DEFINE ACCESS${ine} ${access.name} ON ${level} TYPE JWT`
     sql += ` ALGORITHM ${access.jwt.algorithm}`
     sql += ` KEY '${access.jwt.key}'`
     if (access.jwt.issuer) sql += ` WITH ISSUER '${access.jwt.issuer}'`
@@ -151,40 +169,45 @@ export function generateAccessSql(access: AccessDefinition, level: string = 'DAT
   }
 
   if (access.type === AccessType.RECORD && access.record) {
-    let sql = `DEFINE ACCESS ${access.name} ON ${level} TYPE RECORD`
+    let sql = `DEFINE ACCESS${ine} ${access.name} ON ${level} TYPE RECORD`
     if (access.record.signup) sql += ` SIGNUP (${access.record.signup})`
     if (access.record.signin) sql += ` SIGNIN (${access.record.signin})`
     return sql + ';'
   }
 
-  return `DEFINE ACCESS ${access.name} ON ${level} TYPE ${access.type};`
+  return `DEFINE ACCESS${ine} ${access.name} ON ${level} TYPE ${access.type};`
 }
 
 /**
- * Generate all schema SQL from tables, edges, and access definitions
+ * Generate all schema SQL from tables, edges, and access definitions.
+ *
+ * Pass `ifNotExists: true` to propagate `IF NOT EXISTS` to every emitted
+ * `DEFINE TABLE` and `DEFINE ACCESS` statement.
  */
 export function generateSchemaSql(options: {
   tables?: TableDefinition[]
   edges?: EdgeDefinition[]
   access?: AccessDefinition[]
+  ifNotExists?: boolean
 }): string {
   const parts: string[] = []
+  const emitOpts = { ifNotExists: options.ifNotExists }
 
   if (options.tables) {
     for (const table of options.tables) {
-      parts.push(generateTableSql(table))
+      parts.push(generateTableSql(table, emitOpts))
     }
   }
 
   if (options.edges) {
     for (const edge of options.edges) {
-      parts.push(generateEdgeSql(edge))
+      parts.push(generateEdgeSql(edge, emitOpts))
     }
   }
 
   if (options.access) {
     for (const acc of options.access) {
-      parts.push(generateAccessSql(acc))
+      parts.push(generateAccessSql(acc, 'DATABASE', emitOpts))
     }
   }
 

@@ -1,6 +1,7 @@
-import { assertEquals } from '@std/assert'
+import { assertEquals, assertStringIncludes } from '@std/assert'
 import { describe, it } from '@std/testing/bdd'
 import { accessSchema, AccessType, jwtAccess, recordAccess } from '../schema/access.ts'
+import { generateAccessSql } from '../schema/sql.ts'
 
 describe('AccessType enum', () => {
   it('should have JWT and RECORD values', () => {
@@ -75,5 +76,41 @@ describe('recordAccess', () => {
   it('should return a frozen object', () => {
     const result = recordAccess('frozen_rec', {})
     assertEquals(Object.isFrozen(result), true)
+  })
+})
+
+describe('generateAccessSql', () => {
+  it('should emit DEFINE ACCESS without IF NOT EXISTS by default (JWT)', () => {
+    const access = jwtAccess('my_jwt', { algorithm: 'HS256', key: 'secret' })
+    const sql = generateAccessSql(access)
+    assertStringIncludes(sql, 'DEFINE ACCESS my_jwt ON DATABASE TYPE JWT')
+    assertEquals(sql.includes('IF NOT EXISTS'), false)
+  })
+
+  it('should emit DEFINE ACCESS IF NOT EXISTS when flag is set (JWT)', () => {
+    const access = jwtAccess('my_jwt', { algorithm: 'HS256', key: 'secret' })
+    const sql = generateAccessSql(access, 'DATABASE', { ifNotExists: true })
+    assertStringIncludes(sql, 'DEFINE ACCESS IF NOT EXISTS my_jwt ON DATABASE TYPE JWT')
+    assertStringIncludes(sql, "ALGORITHM HS256 KEY 'secret'")
+  })
+
+  it('should emit DEFINE ACCESS IF NOT EXISTS when flag is set (RECORD)', () => {
+    const access = recordAccess('my_rec', { signup: 'CREATE user', signin: 'SELECT * FROM user' })
+    const sql = generateAccessSql(access, 'DATABASE', { ifNotExists: true })
+    assertStringIncludes(sql, 'DEFINE ACCESS IF NOT EXISTS my_rec ON DATABASE TYPE RECORD')
+    assertStringIncludes(sql, 'SIGNUP (CREATE user)')
+    assertStringIncludes(sql, 'SIGNIN (SELECT * FROM user)')
+  })
+
+  it('should emit DEFINE ACCESS IF NOT EXISTS when flag is set (bare access)', () => {
+    const access = accessSchema('my_jwt', AccessType.JWT)
+    const sql = generateAccessSql(access, 'DATABASE', { ifNotExists: true })
+    assertStringIncludes(sql, 'DEFINE ACCESS IF NOT EXISTS my_jwt ON DATABASE TYPE JWT')
+  })
+
+  it('should respect the custom level argument with ifNotExists', () => {
+    const access = jwtAccess('ns_jwt', { algorithm: 'HS256', key: 'k' })
+    const sql = generateAccessSql(access, 'NAMESPACE', { ifNotExists: true })
+    assertStringIncludes(sql, 'DEFINE ACCESS IF NOT EXISTS ns_jwt ON NAMESPACE TYPE JWT')
   })
 })
