@@ -37,7 +37,7 @@ env:
 jobs:
   audit:
     name: npm audit (npm: specifiers from deno.json)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v5
 
