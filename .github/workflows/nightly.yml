@@ -1,0 +1,82 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # Unit + type checks across the full OS x Deno matrix. macOS runners
+  # don't have Docker pre-installed on GitHub-hosted runners, so the
+  # integration tests (which spin up a SurrealDB container) only run
+  # in the separate integration job below.
+  sanity:
+    name: Sanity (${{ matrix.os }} / Deno ${{ matrix.deno }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        deno: [v2.x, canary]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: ${{ matrix.deno }}
+
+      - name: Check formatting
+        run: deno fmt --check
+
+      - name: Check lint
+        run: deno lint
+
+      - name: Type check
+        run: deno check mod.ts
+
+      - name: Run unit tests
+        run: |
+          deno test -A \
+            --ignore="src/test/auth.test.ts,src/test/integration.test.ts,src/test/integration_crud.test.ts,src/test/integration_client.test.ts" \
+            -q
+
+  # Integration tests against both the pinned v3 image and `latest`.
+  # Ubuntu only because GitHub-hosted macOS runners lack Docker.
+  integration:
+    name: Integration (Deno ${{ matrix.deno }} / surrealdb:${{ matrix.surreal }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        deno: [v2.x, canary]
+        surreal: ['v3.0.5', 'latest']
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: ${{ matrix.deno }}
+
+      - name: Start SurrealDB (${{ matrix.surreal }})
+        run: |
+          docker run -d \
+            --name surrealdb \
+            -p 8000:8000 \
+            surrealdb/surrealdb:${{ matrix.surreal }} \
+            start --user root --pass root memory
+          for i in $(seq 1 20); do
+            if curl -sf http://localhost:8000/health; then
+              echo "SurrealDB is ready"
+              break
+            fi
+            echo "Waiting for SurrealDB... attempt $i"
+            sleep 2
+          done
+
+      - name: Run deno task test
+        run: deno task test

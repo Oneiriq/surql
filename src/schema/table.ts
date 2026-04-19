@@ -17,6 +17,7 @@ export enum IndexType {
   UNIQUE = 'UNIQUE',
   SEARCH = 'SEARCH',
   MTREE = 'MTREE',
+  HNSW = 'HNSW',
 }
 
 /**
@@ -30,7 +31,21 @@ export enum MTreeDistanceType {
 }
 
 /**
- * MTREE vector type
+ * HNSW vector distance metric
+ */
+export enum HnswDistanceType {
+  CHEBYSHEV = 'CHEBYSHEV',
+  COSINE = 'COSINE',
+  EUCLIDEAN = 'EUCLIDEAN',
+  HAMMING = 'HAMMING',
+  JACCARD = 'JACCARD',
+  MANHATTAN = 'MANHATTAN',
+  MINKOWSKI = 'MINKOWSKI',
+  PEARSON = 'PEARSON',
+}
+
+/**
+ * MTREE vector type (also used for HNSW)
  */
 export enum MTreeVectorType {
   F64 = 'F64',
@@ -52,6 +67,9 @@ export interface IndexDefinition {
   readonly mtreeDimension?: number
   readonly mtreeVectorType?: MTreeVectorType
   readonly mtreeCapacity?: number
+  readonly hnswDistance?: HnswDistanceType
+  readonly hnswEfc?: number
+  readonly hnswM?: number
 }
 
 /**
@@ -161,6 +179,30 @@ export function mtreeIndex(
     mtreeDistance: options.distance ?? MTreeDistanceType.COSINE,
     mtreeVectorType: options.vectorType ?? MTreeVectorType.F64,
     mtreeCapacity: options.capacity,
+  })
+}
+
+/** Create an HNSW vector index */
+export function hnswIndex(
+  name: string,
+  field: string,
+  dimension: number,
+  options: {
+    distance?: HnswDistanceType
+    vectorType?: MTreeVectorType
+    efc?: number
+    m?: number
+  } = {},
+): IndexDefinition {
+  return Object.freeze({
+    name,
+    fields: [field],
+    type: IndexType.HNSW,
+    mtreeDimension: dimension,
+    mtreeVectorType: options.vectorType ?? MTreeVectorType.F32,
+    hnswDistance: options.distance ?? HnswDistanceType.COSINE,
+    hnswEfc: options.efc,
+    hnswM: options.m,
   })
 }
 

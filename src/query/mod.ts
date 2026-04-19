@@ -91,6 +91,7 @@ export {
   traverse,
   traverseWithDepth,
 } from './graph.ts'
+export { GraphQuery, GraphQueryError, type GraphQueryRendered } from './graphQuery.ts'
 export { escapeTable, quoteValue, ReturnFormat, validateIdentifier, type VectorDistanceType } from './helpers.ts'
 export {
   explainHint,
