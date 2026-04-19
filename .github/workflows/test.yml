@@ -19,7 +19,14 @@ jobs:
         with:
           deno-version: ${{ matrix.deno-version }}
       - name: Run unit tests
+        # Integration tests require a live SurrealDB container and run in
+        # integration.yml instead. Any `integration*` file under
+        # `src/test/` is auto-excluded so new integration suites don't
+        # accidentally gate the publish workflow on missing services.
         run: |
-          deno test -A \
-            --ignore="src/test/auth.test.ts,src/test/integration.test.ts,src/test/integration_crud.test.ts,src/test/integration_client.test.ts" \
-            -q
+          readarray -t unit_tests < <(
+            find src/test -maxdepth 1 -type f -name '*.test.ts' \
+              ! -name 'integration*' \
+              ! -name 'auth.test.ts'
+          )
+          deno test -A -q "${unit_tests[@]}"
