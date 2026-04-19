@@ -39,12 +39,21 @@ export {
   stringField,
 } from './fields.ts'
 export {
+  type DatabaseInfo,
   fetchDbInfo,
   fetchTableInfo,
+  parseAccess,
   parseDbInfo,
-  type ParsedDbInfo,
-  type ParsedTableInfo,
+  parseEdgeInfo,
+  parseEvent,
+  parseEvents,
+  parseField,
+  parseFields,
+  parseIndex,
+  parseIndexes,
   parseTableInfo,
+  parseTableMode,
+  SchemaParseError,
 } from './parser.ts'
 export {
   clearRegistry,
@@ -59,6 +68,8 @@ export { generateAccessSql, generateEdgeSql, generateSchemaSql, generateTableSql
 export {
   event,
   type EventDefinition,
+  HnswDistanceType,
+  hnswIndex,
   index,
   type IndexDefinition,
   IndexType,
