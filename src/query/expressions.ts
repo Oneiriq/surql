@@ -260,44 +260,7 @@ export function recordRef(table: string, id?: string): Expression {
   })
 }
 
-/**
- * Marker interface for SurrealDB server-side function values.
- * When used in create/update data, these render as raw SurrealQL
- * instead of being parameterized.
- */
-export interface SurrealFnValue {
-  readonly __surqlFn: true
-  readonly surql: string
-  toSurQL(): string
-}
-
-/**
- * Create a SurrealDB server-side function reference for use in field values.
- * When passed as a value in create/update operations, it will be rendered
- * as raw SurrealQL rather than parameterized.
- *
- * @param name - Fully qualified function name (e.g. 'time::now', 'math::floor')
- * @param args - Optional arguments as SurrealQL strings
- */
-export function surqlFn(name: string, ...args: string[]): SurrealFnValue {
-  const argsStr = args.join(', ')
-  return Object.freeze({
-    __surqlFn: true as const,
-    surql: `${name}(${argsStr})`,
-    toSurQL(): string {
-      return this.surql
-    },
-  })
-}
-
-/**
- * Type guard to check if a value is a SurrealFnValue
- */
-export function isSurqlFn(value: unknown): value is SurrealFnValue {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    '__surqlFn' in value &&
-    (value as SurrealFnValue).__surqlFn === true
-  )
-}
+// Back-compat re-exports. The canonical home for `SurrealFnValue`, `surqlFn`,
+// and `isSurqlFn` is now `../types/surqlFn.ts`; pre-v1.3.0 callers that
+// imported them from `src/query/expressions.ts` continue to work.
+export { isSurqlFn, surqlFn, type SurrealFnValue } from '../types/surqlFn.ts'
