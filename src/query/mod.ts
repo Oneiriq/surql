@@ -13,6 +13,8 @@ export {
   vectorSearchQuery,
 } from './builder.ts'
 export {
+  aggregateRecords,
+  type AggregateRecordsOptions,
   countRecords,
   createRecord,
   createRecords,
