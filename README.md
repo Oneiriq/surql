@@ -1,7 +1,7 @@
 # surql
 
 [![JSR Version](https://img.shields.io/jsr/v/@oneiriq/surql)](https://jsr.io/@oneiriq/surql)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Apache 2.0](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![SurrealDB](https://img.shields.io/badge/SurrealDB-v3-ff00a0)](https://surrealdb.com/)
 
 Code-first database toolkit for [SurrealDB](https://surrealdb.com/). Type-safe query builder, schema/migration engine, orchestrator, and `surql` CLI — all from TypeScript, for Deno and Node.js.
@@ -137,7 +137,7 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Apache License 2.0 — see [LICENSE](LICENSE).
 
 ## Python
 
