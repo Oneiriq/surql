@@ -1,10 +1,14 @@
 name: Integration Tests
 
+# Cost-conscious surface: manual-only. Integration spins a SurrealDB
+# container per run; expensive when fired on every push. Trigger from
+# the Actions UI when integration sign-off is needed.
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

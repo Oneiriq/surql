@@ -11,25 +11,14 @@ name: Security Audit
 # is committed. JSR-only updates are still caught by `nightly.yml` via
 # the Deno version matrix.
 
+# Cost-conscious surface: manual-only for now (3000 action minutes/month
+# budget). Re-enable PR/push/schedule when the budget allows.
 on:
-  pull_request:
-    branches:
-      - main
-      - 'release/**'
-    paths:
-      - 'deno.json'
-      - 'deno.lock'
-      - '.github/workflows/audit.yml'
-  push:
-    branches:
-      - main
-    paths:
-      - 'deno.json'
-      - 'deno.lock'
-      - '.github/workflows/audit.yml'
-  schedule:
-    - cron: '0 4 * * *'
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
