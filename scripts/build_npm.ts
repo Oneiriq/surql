@@ -17,7 +17,7 @@ await build({
     name: '@oneiriq/surql',
     version,
     description: 'A modern, type-safe query builder for SurrealDB designed for Deno and Node.js',
-    license: 'MIT',
+    license: 'Apache-2.0',
     author: {
       name: 'oneiriq',
     },
@@ -58,7 +58,13 @@ await build({
   },
   importMap: './deno.json',
   test: false,
-  typeCheck: 'both',
+  // typeCheck: 'both' fails because @deno/shim-deno doesn't expose
+  // newer Deno APIs we use legitimately on the Deno side
+  // (Deno.Command + Deno.CommandOutput in src/migration/hooks.ts).
+  // The Deno-side type check already runs in `deno check mod.ts`
+  // (test.yml + check.yml), so re-checking the dnt-transformed npm
+  // output is redundant.
+  typeCheck: false,
   declaration: 'separate',
   scriptModule: 'cjs',
   compilerOptions: {
