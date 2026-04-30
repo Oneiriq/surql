@@ -19,6 +19,14 @@ describe('quoteValue', () => {
     assertEquals(quoteValue("it's"), "'it\\'s'")
   })
 
+  it('should escape backslashes before quotes (no quote-smuggle)', () => {
+    // Regression for CodeQL js/incomplete-sanitization: an attacker passing
+    // a literal backslash followed by a single quote must not be able to
+    // produce a string that closes the SurrealQL string and continues as code.
+    assertEquals(quoteValue("a\\'; SELECT * FROM users; --"), "'a\\\\\\'; SELECT * FROM users; --'")
+    assertEquals(quoteValue('back\\slash'), "'back\\\\slash'")
+  })
+
   it('should return true/false for booleans', () => {
     assertEquals(quoteValue(true), 'true')
     assertEquals(quoteValue(false), 'false')

@@ -214,6 +214,12 @@ describe('operators', () => {
       assertEquals(expr.toSurQL(), "name = 'O\\'Brien'")
     })
 
+    it('should escape backslashes before quotes (no quote-smuggle)', () => {
+      // Regression for CodeQL js/incomplete-sanitization on src/types/operators.ts.
+      const expr = eq('name', "a\\'; SELECT * FROM users; --")
+      assertEquals(expr.toSurQL(), "name = 'a\\\\\\'; SELECT * FROM users; --'")
+    })
+
     it('should handle false boolean', () => {
       const expr = eq('active', false)
       assertEquals(expr.toSurQL(), 'active = false')

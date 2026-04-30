@@ -30,7 +30,12 @@ export type Operator = ComparisonOperator | LogicOperator
  */
 function quoteValue(value: unknown): string {
   if (value === null || value === undefined) return 'NONE'
-  if (typeof value === 'string') return `'${value.replace(/'/g, "\\'")}'`
+  if (typeof value === 'string') {
+    // Escape backslashes first, then single quotes, so that an attacker
+    // can't smuggle a closing quote via `\'` (CodeQL js/incomplete-sanitization).
+    const escaped = value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+    return `'${escaped}'`
+  }
   if (typeof value === 'boolean') return value ? 'true' : 'false'
   if (typeof value === 'number') return String(value)
   if (Array.isArray(value)) return `[${value.map(quoteValue).join(', ')}]`
