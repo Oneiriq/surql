@@ -1,9 +1,13 @@
 name: Nightly
 
+# Cost-conscious surface: manual-only for now. The cron consumed ~30 min
+# per night across the OS x Deno matrix; re-enable once budget allows.
 on:
-  schedule:
-    - cron: '0 3 * * *'
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

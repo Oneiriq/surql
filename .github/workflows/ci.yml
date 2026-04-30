@@ -1,8 +1,17 @@
 name: CI
 
+# Cost-conscious trigger surface: PR-only. Pushes to main don't fire CI
+# directly — the merge must already have passed the PR-triggered run,
+# and post-merge re-runs cost minutes for no incremental signal.
 on:
-  push:
   pull_request:
+    branches: [main, 'release/**']
+
+# New commits to a PR cancel any in-flight CI run on the same branch.
+# Reduces wasted runner minutes when force-pushing or quick-fixing a PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
