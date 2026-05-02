@@ -1,8 +1,8 @@
 name: Integration Tests
 
 # Cost-conscious surface: manual-only. Integration spins a SurrealDB
-# container per run; expensive when fired on every push. Trigger from
-# the Actions UI when integration sign-off is needed.
+# container per run; trigger from the Actions UI when integration
+# sign-off is needed.
 on:
   workflow_dispatch:
 
@@ -18,7 +18,7 @@ env:
 
 jobs:
   integration:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, aur0]
     steps:
       - uses: actions/checkout@v5
       - name: Setup Deno
