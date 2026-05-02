@@ -25,7 +25,7 @@ env:
 
 jobs:
   audit:
-    name: npm audit (npm: specifiers from deno.json)
+    name: "npm audit (npm: specifiers from deno.json)"
     runs-on: [self-hosted, aur0]
     steps:
       - uses: actions/checkout@v5
@@ -35,7 +35,7 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Synthesize package.json from deno.json npm: imports
+      - name: "Synthesize package.json from deno.json npm: imports"
         run: |
           node <<'EOF'
           const fs = require('node:fs')
@@ -69,6 +69,11 @@ jobs:
           console.log('Synthesized package.json:')
           console.log(JSON.stringify(pkg, null, 2))
           EOF
+
+      - name: Generate lockfile for synthesized package.json
+        # `npm audit` requires an existing lockfile (ENOLOCK otherwise).
+        # We never commit it -- it lives only for the duration of the job.
+        run: npm install --package-lock-only --omit=dev
 
       - name: Run npm audit
         run: npm audit --audit-level=moderate --omit=dev
