@@ -70,5 +70,10 @@ jobs:
           console.log(JSON.stringify(pkg, null, 2))
           EOF
 
+      - name: Generate lockfile for synthesized package.json
+        # `npm audit` requires an existing lockfile (ENOLOCK otherwise).
+        # We never commit it -- it lives only for the duration of the job.
+        run: npm install --package-lock-only --omit=dev
+
       - name: Run npm audit
         run: npm audit --audit-level=moderate --omit=dev
