@@ -8,7 +8,7 @@ permissions:
 jobs:
   auto-merge:
     if: github.actor == 'dependabot[bot]'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, aur0]
     steps:
       - name: Get PR metadata
         id: meta

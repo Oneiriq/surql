@@ -19,7 +19,8 @@ jobs:
   # Unit + type checks across the full OS x Deno matrix. macOS runners
   # don't have Docker pre-installed on GitHub-hosted runners, so the
   # integration tests (which spin up a SurrealDB container) only run
-  # in the separate integration job below.
+  # in the separate integration job below. macOS coverage is retained
+  # here as the cross-platform safety net for what we dropped from PR/push.
   sanity:
     name: Sanity (${{ matrix.os }} / Deno ${{ matrix.deno }})
     runs-on: ${{ matrix.os }}

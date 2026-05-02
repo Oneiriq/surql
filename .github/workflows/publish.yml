@@ -32,7 +32,7 @@ jobs:
     if: |
       github.event_name == 'release' ||
       (github.event_name == 'workflow_dispatch' && (inputs.target == 'jsr' || inputs.target == 'both'))
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, aur0]
     permissions:
       contents: read
       id-token: write
@@ -50,7 +50,7 @@ jobs:
     if: |
       (github.event_name == 'release' && !github.event.release.prerelease) ||
       (github.event_name == 'workflow_dispatch' && (inputs.target == 'npm' || inputs.target == 'both'))
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, aur0]
     environment: ${{ github.event_name == 'release' && 'publish' || '' }}
     permissions:
       contents: read
