@@ -11,7 +11,7 @@ env:
 
 jobs:
   code_quality:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, aur0]
     strategy:
       matrix:
         deno-version: [v2.x]
