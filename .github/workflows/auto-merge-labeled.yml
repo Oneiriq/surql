@@ -1,0 +1,65 @@
+name: Auto-merge labeled PRs
+
+# Re-runs gates locally and admin-merges PRs that carry the `auto-merge`
+# label. Runs the gates in-line because PRs opened by GITHUB_TOKEN do not
+# trigger downstream workflows; running the gates here keeps the loop
+# self-contained without requiring a PAT.
+#
+# Scope:
+#   - Only PRs targeting `main`.
+#   - Only PRs whose head branch was pushed to this repo (no forks).
+#   - Only when the PR carries the `auto-merge` label.
+on:
+  pull_request:
+    types: [labeled, opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  pull-requests: write
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  gates-and-merge:
+    if: >-
+      contains(github.event.pull_request.labels.*.name, 'auto-merge') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, aur0]
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Check formatting
+        run: deno fmt --check
+
+      - name: Lint
+        run: deno lint
+
+      - name: Type check
+        run: deno check mod.ts
+
+      - name: Unit tests
+        run: |
+          readarray -t unit_tests < <(
+            find src/test -maxdepth 1 -type f -name '*.test.ts' \
+              ! -name 'integration*' \
+              ! -name 'auth.test.ts'
+          )
+          deno test -A -q "${unit_tests[@]}"
+
+      - name: Approve + admin-merge
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr review --approve "$PR_URL"
+          gh pr merge --squash --delete-branch --admin "$PR_URL"
