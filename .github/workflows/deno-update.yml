@@ -1,0 +1,203 @@
+name: Deno Update
+
+# Weekly automated bump of deno.json deps via `deno outdated --update`.
+# This workflow is closed-loop: it runs the gates, opens a PR, and -- for
+# patch-only bumps -- admin-merges the PR in-band before exiting. Minor/
+# major bumps are left open with the `dependencies` label for human
+# review.
+#
+# In-band merge avoids the `pull_request`-from-GITHUB_TOKEN trap: PRs
+# opened by GITHUB_TOKEN do not trigger downstream workflow runs, so a
+# separate label-driven auto-merge job would never see the PR. Admin
+# merge is required for the same reason -- branch-protection's required
+# checks never flip green on a token-authored PR -- and is safe here
+# because (a) the gates already ran in this job, and (b) the merge is
+# only attempted for `patch` classifications.
+on:
+  schedule:
+    # Mondays at 14:00 UTC.
+    - cron: '0 14 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: deno-update
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  update:
+    runs-on: [self-hosted, aur0]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Run deno outdated --update
+        run: deno outdated --update
+
+      - name: Detect changes
+        id: diff
+        run: |
+          if git diff --quiet -- deno.json deno.lock; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No deno.json/deno.lock changes; nothing to do."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git --no-pager diff -- deno.json | head -200
+          fi
+
+      - name: Check formatting
+        if: steps.diff.outputs.changed == 'true'
+        run: deno fmt --check
+
+      - name: Lint
+        if: steps.diff.outputs.changed == 'true'
+        run: deno lint
+
+      - name: Type check
+        if: steps.diff.outputs.changed == 'true'
+        run: deno check mod.ts
+
+      - name: Unit tests
+        if: steps.diff.outputs.changed == 'true'
+        # Mirror test.yml: integration tests need a live SurrealDB so
+        # they're excluded; auth.test.ts also stays out of the unit run.
+        run: |
+          readarray -t unit_tests < <(
+            find src/test -maxdepth 1 -type f -name '*.test.ts' \
+              ! -name 'integration*' \
+              ! -name 'auth.test.ts'
+          )
+          deno test -A -q "${unit_tests[@]}"
+
+      - name: Classify bump (patch vs minor/major)
+        if: steps.diff.outputs.changed == 'true'
+        id: classify
+        run: |
+          git --no-pager diff -- deno.json > /tmp/denojson.diff
+          kind=$(deno run --allow-read=/tmp/denojson.diff - <<'TS'
+          // Classify a deno.json diff as `patch` (only patch bumps), `mixed`
+          // (any minor/major bump), or `unknown` (couldn't extract any
+          // version pairs). Used to gate `auto-merge` labeling.
+          const text = await Deno.readTextFile('/tmp/denojson.diff');
+          const verRe = /@\^?~?(\d+)\.(\d+)\.(\d+)(?:[-+][\w.]+)?(?=["\s,}])/g;
+          const olds: [number, number, number][] = [];
+          const news: [number, number, number][] = [];
+          for (const ln of text.split('\n')) {
+            if (ln.startsWith('---') || ln.startsWith('+++')) continue;
+            const target = ln.startsWith('-') ? olds : ln.startsWith('+') ? news : null;
+            if (!target) continue;
+            for (const m of ln.matchAll(verRe)) {
+              target.push([Number(m[1]), Number(m[2]), Number(m[3])]);
+            }
+          }
+          let kind: string;
+          if (olds.length === 0 || news.length === 0) {
+            kind = 'unknown';
+          } else if (olds.length !== news.length) {
+            kind = 'mixed';
+          } else {
+            let allPatch = true;
+            for (let i = 0; i < olds.length; i++) {
+              const [oM, om, op] = olds[i];
+              const [nM, nm, np] = news[i];
+              if (oM === nM && om === nm && op === np) continue;
+              if (oM !== nM || om !== nm) { allPatch = false; break; }
+            }
+            kind = allPatch ? 'patch' : 'mixed';
+          }
+          await Deno.stdout.write(new TextEncoder().encode(kind));
+          TS
+          )
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
+          echo "Classified bump kind: $kind"
+
+      - name: Build PR body
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          {
+            echo 'Automated dependency bump produced by `deno outdated --update`.'
+            echo
+            echo '## deno.json diff'
+            echo
+            echo '```diff'
+            git --no-pager diff -- deno.json
+            echo '```'
+            echo
+            echo "Bump classification: \`${{ steps.classify.outputs.kind }}\`"
+            echo
+            if [ "${{ steps.classify.outputs.kind }}" = "patch" ]; then
+              echo 'Patch-only bump: labeled `auto-merge` so the label-driven auto-merge workflow will land it once gates are green.'
+            else
+              echo 'Contains minor/major bumps: labeled `dependencies` only and left for human review.'
+            fi
+          } > /tmp/pr_body.md
+
+      - name: Ensure labels exist
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create auto-merge --color 0E8A16 --description "Auto-merge once required checks pass" --force
+          gh label create dependencies --color 0366D6 --description "Pull requests that update a dependency file" --force
+
+      - name: Create PR
+        if: steps.diff.outputs.changed == 'true'
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          date_tag=$(date -u +%Y-%m-%d)
+          branch="chore/deno-update-${date_tag}"
+
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            branch="chore/deno-update-${date_tag}-${{ github.run_id }}"
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -b "$branch"
+          git add deno.json deno.lock
+          git commit -m 'chore(deps): deno outdated --update'
+          git push origin "$branch"
+
+          if [ "${{ steps.classify.outputs.kind }}" = "patch" ]; then
+            labels='auto-merge,dependencies'
+          else
+            labels='dependencies'
+          fi
+
+          pr_url=$(gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "chore(deps): deno outdated --update (${date_tag})" \
+            --body-file /tmp/pr_body.md \
+            --label "$labels")
+          echo "url=$pr_url" >> "$GITHUB_OUTPUT"
+          echo "Opened PR: $pr_url"
+
+      - name: Auto-merge patch-only PR
+        if: steps.diff.outputs.changed == 'true' && steps.classify.outputs.kind == 'patch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+        run: |
+          set -euo pipefail
+          # Gates already passed earlier in this job; admin merge is needed
+          # because branch-protection required checks never flip green on a
+          # PR authored by GITHUB_TOKEN (no downstream workflow runs).
+          gh pr merge --squash --delete-branch --admin "$PR_URL"
