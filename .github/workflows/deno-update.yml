@@ -1,9 +1,18 @@
 name: Deno Update
 
 # Weekly automated bump of deno.json deps via `deno outdated --update`.
-# Patch-only PRs are labeled `auto-merge` so the label-driven auto-merge
-# workflow can land them without human intervention. Minor/major bumps
-# stay open for review and only get the `dependencies` label.
+# This workflow is closed-loop: it runs the gates, opens a PR, and -- for
+# patch-only bumps -- admin-merges the PR in-band before exiting. Minor/
+# major bumps are left open with the `dependencies` label for human
+# review.
+#
+# In-band merge avoids the `pull_request`-from-GITHUB_TOKEN trap: PRs
+# opened by GITHUB_TOKEN do not trigger downstream workflow runs, so a
+# separate label-driven auto-merge job would never see the PR. Admin
+# merge is required for the same reason -- branch-protection's required
+# checks never flip green on a token-authored PR -- and is safe here
+# because (a) the gates already ran in this job, and (b) the merge is
+# only attempted for `patch` classifications.
 on:
   schedule:
     # Mondays at 14:00 UTC.
@@ -17,6 +26,7 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
+  issues: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -146,6 +156,7 @@ jobs:
 
       - name: Create PR
         if: steps.diff.outputs.changed == 'true'
+        id: pr
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -170,9 +181,23 @@ jobs:
             labels='dependencies'
           fi
 
-          gh pr create \
+          pr_url=$(gh pr create \
             --base main \
             --head "$branch" \
             --title "chore(deps): deno outdated --update (${date_tag})" \
             --body-file /tmp/pr_body.md \
-            --label "$labels"
+            --label "$labels")
+          echo "url=$pr_url" >> "$GITHUB_OUTPUT"
+          echo "Opened PR: $pr_url"
+
+      - name: Auto-merge patch-only PR
+        if: steps.diff.outputs.changed == 'true' && steps.classify.outputs.kind == 'patch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+        run: |
+          set -euo pipefail
+          # Gates already passed earlier in this job; admin merge is needed
+          # because branch-protection required checks never flip green on a
+          # PR authored by GITHUB_TOKEN (no downstream workflow runs).
+          gh pr merge --squash --delete-branch --admin "$PR_URL"
