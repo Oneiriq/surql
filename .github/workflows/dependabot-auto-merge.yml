@@ -17,10 +17,6 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Wait for required checks
-        if: |
-          steps.meta.outputs.update-type == 'version-update:semver-patch' ||
-          steps.meta.outputs.update-type == 'version-update:semver-minor' ||
-          steps.meta.outputs.package-ecosystem == 'github_actions'
         uses: lewagon/wait-on-check-action@v1.4.0
         with:
           ref: ${{ github.event.pull_request.head.sha }}
@@ -29,11 +25,7 @@ jobs:
           wait-interval: 30
           allowed-conclusions: success,skipped
 
-      - name: Approve + auto-merge (patches, minors, GH Actions)
-        if: |
-          steps.meta.outputs.update-type == 'version-update:semver-patch' ||
-          steps.meta.outputs.update-type == 'version-update:semver-minor' ||
-          steps.meta.outputs.package-ecosystem == 'github_actions'
+      - name: Approve + auto-merge
         run: |
           gh pr review --approve "$PR_URL"
           gh pr merge --auto --squash --delete-branch "$PR_URL"
