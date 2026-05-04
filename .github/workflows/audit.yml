@@ -28,7 +28,7 @@ jobs:
     name: "npm audit (npm: specifiers from deno.json)"
     runs-on: [self-hosted, aur0]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Setup Node
         uses: actions/setup-node@v4

@@ -18,7 +18,7 @@ jobs:
     name: Dependency Review
     runs-on: [self-hosted, aur0]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Dependency Review
         uses: actions/dependency-review-action@v4
