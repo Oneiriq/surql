@@ -11,7 +11,11 @@ env:
 
 jobs:
   test:
-    runs-on: [self-hosted, aur0]
+    # Reusable workflow — inherits the caller's trigger context. When
+    # called from ci.yml on a fork PR, route to ubuntu-latest so the
+    # `deno test -A` invocation (which runs fork-controlled code with
+    # full permissions) never executes on aur0.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted", "aur0"]') }}
     strategy:
       matrix:
         deno-version: [v2.x]
