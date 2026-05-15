@@ -23,7 +23,10 @@ env:
 
 jobs:
   build:
-    runs-on: [self-hosted, aur0]
+    # Build runs for both push to main AND fork PRs (link/nav check).
+    # Same-repo PRs and push run on aur0; fork PRs fall back to
+    # ubuntu-latest so untrusted PR code never executes on aur0.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted", "aur0"]') }}
     steps:
       - uses: actions/checkout@v5
 

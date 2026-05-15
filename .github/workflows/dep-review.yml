@@ -16,7 +16,11 @@ env:
 jobs:
   dep-review:
     name: Dependency Review
-    runs-on: [self-hosted, aur0]
+    # aur0 self-hosted for same-repo PRs (Oneiriq members); fork PRs
+    # fall back to ubuntu-latest so untrusted PR code never executes
+    # on the org's internal runner. github.event.pull_request is null
+    # on non-PR events → expression picks aur0 by default.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted", "aur0"]') }}
     steps:
       - uses: actions/checkout@v5
 
