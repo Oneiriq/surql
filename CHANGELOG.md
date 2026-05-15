@@ -1,10 +1,48 @@
 # Changelog
 
+## [1.3.5] - 2026-05-15
+
+### Fixed
+
+- **Docs**: corrected the "Buffered `BEGIN` / `COMMIT`" warning on the v3 Patterns page — the `Found COMMIT TRANSACTION, but ...` code span was immediately followed by the sentence period, rendering a stray trailing `....`.
+
+### Changed
+
+- **Docs**: replaced informal "wave" phrasing with neutral wording across `docs/query-ux.md`, `docs/migration.md`, and the changelog.
+- **CI**: the documentation workflow now runs `mkdocs build --strict` on pull requests, so broken links and nav errors are caught before merge instead of only in the post-merge deploy.
+- **CI**: closed open code-scanning alerts, added a label-driven Dependabot auto-merge workflow, moved CI/audit onto the `aur0` self-hosted runner, and added the scheduled `deno-update` workflow (#49–#54).
+
+### Housekeeping
+
+- Version bumped to `1.3.5` in `deno.json`.
+
+---
+
+## [1.3.4] - 2026-04-30
+
+### Fixed
+
+- **Publish**: corrected the npm package license metadata and skipped a redundant dnt typecheck (#48).
+
+---
+
+## [1.3.3] - 2026-04-30
+
+### Changed
+
+- **License**: relicensed to Apache-2.0 with a `NOTICE` file (#46).
+
+### Housekeeping
+
+- Trimmed auto-trigger workflows and bumped to `1.3.3` (#47).
+
+---
+
 ## [1.3.2] - 2026-04-19
 
 ### Changed
 
-- **Docs refresh** (#37): documented every wave that landed since v1.0.0. New pages: `docs/v3-patterns.md` (buffered BEGIN/COMMIT, `IF NOT EXISTS` emitter, unrolled graph depth), `docs/query-ux.md` (`typeRecord` / `typeThing`, function factories, `FunctionValueExpression`, `extractMany` / `hasResult`, `aggregateRecords`, `updateRecord` / `getRecord` overloads), `docs/cli.md` (`surql migrate|schema|db|orchestrate|settings` reference), `docs/migration.md` (upgrade notes v1.1.0 → v1.2.0 → v1.3.x). README refreshed with first-class helper examples (`typeRecord`, `timeNow`, `aggregateRecords`, `surql` CLI). mkdocs nav extended; `mkdocs build --strict` stays clean.
+- **Docs refresh** (#37): documented every release that landed since v1.0.0. New pages: `docs/v3-patterns.md` (buffered BEGIN/COMMIT, `IF NOT EXISTS` emitter, unrolled graph depth), `docs/query-ux.md` (`typeRecord` / `typeThing`, function factories, `FunctionValueExpression`, `extractMany` / `hasResult`, `aggregateRecords`, `updateRecord` / `getRecord` overloads), `docs/cli.md` (`surql migrate|schema|db|orchestrate|settings` reference), `docs/migration.md` (upgrade notes v1.1.0 → v1.2.0 → v1.3.x). README refreshed with first-class helper examples (`typeRecord`, `timeNow`, `aggregateRecords`, `surql` CLI). mkdocs nav extended; `mkdocs build --strict` stays clean.
 
 ### Housekeeping
 
@@ -22,7 +60,7 @@
 
 ## [1.3.0] - 2026-04-19
 
-### Added — Query-UX wave (#29)
+### Added — Query UX (#29)
 
 - **`typeRecord(table, id?)` / `typeThing(table, id?)`** (#6): first-class SurrealDB v3 record references. `typeThing` is the parity alias for surql-py/rs/go. Emits `type::record('table:id')` (v3-valid; v3 dropped `type::thing`).
 - **Function factories** (#7): `countIf`, `mathAbs`/`mathCeil`/`mathFloor`/`mathRound`, `stringLen`/`stringLower`/`stringUpper`/`stringConcat`. Short-form aliases (`abs_`, `ceil`, `floor`, `round_`, `upper`, `lower`, `concat`, `stringLength`) retained for pre-1.3.0 callers.
@@ -39,7 +77,7 @@
 
 ## [1.2.0] - 2026-04-19
 
-### Added — Parity wave (#19, #21, #24)
+### Added — Parity (#19, #21, #24)
 
 - **Structured schema parser** (#19): `parseDbInfo`, `parseTableInfo`, `parseFields`, `parseIndexes`, `parseEvents`, `parseAccess`, `parseEdgeInfo`, plus `SchemaParseError`. Full port of the surql-py/surql-rs/surql-go `DEFINE` parser (HNSW index, JWT URL/duration variants, lookbehind edge cases).
 - **Layered settings loader** (`loadSettings`, `getSettings`, `clearSettingsCache`, `getDbConfig`, `getMigrationPath`): reads env vars, `.env`, `surql.yaml`, and `surql.toml` with precedence matching the py/rs/go ports.

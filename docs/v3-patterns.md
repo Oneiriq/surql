@@ -19,7 +19,7 @@ await tx.commit() // issues BEGIN TRANSACTION; ...; COMMIT TRANSACTION; in one R
 ```
 
 !!! warning "Do not stream statements"
-    Splitting `BEGIN TRANSACTION` and `COMMIT TRANSACTION` across separate `db.query()` calls worked on v1/v2 but fails on v3 with `Found COMMIT TRANSACTION, but ...`.
+    Splitting `BEGIN TRANSACTION` and `COMMIT TRANSACTION` across separate `db.query()` calls worked on v1/v2 but is rejected on v3 with a `Found COMMIT TRANSACTION, but ...` parse error.
 
 `Transaction.cancel()` discards the buffer client-side without ever contacting the server. `Transaction` also implements `Symbol.asyncDispose` so `await using tx = transaction(db)` auto-cancels if the block exits without committing.
 
