@@ -148,12 +148,11 @@ const schema: SchemaDefinition = {
 Generate diffs between two schema states:
 
 ```typescript
-import { diffSchemas } from 'jsr:@oneiriq/surql'
+import { diffTables } from 'jsr:@oneiriq/surql'
 
-const before: SchemaDefinition = { tables: [] }
-const after: SchemaDefinition = { tables: [users, posts] }
-
-const diffs = diffSchemas(before, after)
+// diffTables compares two arrays of TableDefinition — the current
+// schema and the target schema.
+const diffs = diffTables([], [users, posts])
 // Returns: SchemaDiff[]
 ```
 

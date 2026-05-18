@@ -1,6 +1,6 @@
 # Query UX
 
-The v1.3.x query-UX wave fills in first-class helpers for the patterns callers were previously reaching into `raw()` / `surqlFn()` for. This page shows the before/after for each helper.
+The v1.3.x query-UX release fills in first-class helpers for the patterns callers were previously reaching into `raw()` / `surqlFn()` for. This page shows the before/after for each helper.
 
 ## `typeRecord` / `typeThing` references
 

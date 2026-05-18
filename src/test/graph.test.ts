@@ -328,3 +328,54 @@ describe('findMutualConnections', () => {
     )
   })
 })
+
+describe('graph helpers with WHERE conditions', () => {
+  it('traverse appends a WHERE clause', async () => {
+    // deno-lint-ignore no-explicit-any
+    const db = makeMockDb([[]]) as any
+    await traverse(db, 'users:1', '->follows->users', 'age > 18')
+    assertEquals(db.queries[0], 'SELECT * FROM users:1.->follows->users WHERE age > 18')
+  })
+
+  it('traverseWithDepth appends a WHERE clause', async () => {
+    // deno-lint-ignore no-explicit-any
+    const db = makeMockDb([[]]) as any
+    await traverseWithDepth(db, 'users:1', 'follows', '->', 2, 'active = true')
+    assertEquals(db.queries[0], 'SELECT * FROM users:1->follows->follows.* WHERE active = true')
+  })
+
+  it('getRelatedRecords appends a WHERE clause', async () => {
+    // deno-lint-ignore no-explicit-any
+    const db = makeMockDb([[]]) as any
+    await getRelatedRecords(db, 'users:1', 'follows', '->', "tenant = 'acme'")
+    assertEquals(db.queries[0], "SELECT * FROM users:1->follows.* WHERE tenant = 'acme'")
+  })
+
+  it('getOutgoingEdges appends a WHERE clause', async () => {
+    // deno-lint-ignore no-explicit-any
+    const db = makeMockDb([[]]) as any
+    await getOutgoingEdges(db, 'users:1', 'follows', 'weight > 0')
+    assertEquals(db.queries[0], 'SELECT * FROM users:1->follows WHERE weight > 0')
+  })
+
+  it('getIncomingEdges appends a WHERE clause', async () => {
+    // deno-lint-ignore no-explicit-any
+    const db = makeMockDb([[]]) as any
+    await getIncomingEdges(db, 'users:1', 'follows', 'weight > 0')
+    assertEquals(db.queries[0], 'SELECT * FROM users:1<-follows WHERE weight > 0')
+  })
+
+  it('shortestPath appends a WHERE clause', async () => {
+    // deno-lint-ignore no-explicit-any
+    const db = makeMockDb([[]]) as any
+    await shortestPath(db, 'users:1', 'users:5', 'follows', 5, 'cost < 100')
+    assertEquals(db.queries[0].endsWith(' WHERE cost < 100'), true)
+  })
+
+  it('omits the WHERE clause when no conditions are given', async () => {
+    // deno-lint-ignore no-explicit-any
+    const db = makeMockDb([[]]) as any
+    await traverse(db, 'users:1', '->follows->users')
+    assertEquals(db.queries[0].includes('WHERE'), false)
+  })
+})

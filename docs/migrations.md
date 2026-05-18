@@ -10,10 +10,10 @@ A migration is an object implementing the `Migration` interface:
 import type { Migration } from 'jsr:@oneiriq/surql'
 
 const migration: Migration = {
-  version: '20240101000001',   // Sortable timestamp string
+  version: '20240101000001', // Sortable timestamp string
   description: 'create_users',
-  up: async () => 'DEFINE TABLE users SCHEMAFULL; DEFINE FIELD name ON TABLE users TYPE string;',
-  down: async () => 'REMOVE TABLE users;',
+  up: () => Promise.resolve('DEFINE TABLE users SCHEMAFULL; DEFINE FIELD name ON TABLE users TYPE string;'),
+  down: () => Promise.resolve('REMOVE TABLE users;'),
 }
 ```
 
@@ -21,19 +21,16 @@ const migration: Migration = {
 
 ### From Schema Diffs
 
+`diffTables` compares two arrays of `TableDefinition` — the current schema and the target schema — and returns the operations needed to go from one to the other. `generateMigrationFromDiffs` turns those into migration SQL.
+
 ```typescript
-import {
-  diffSchemas,
-  generateMigrationFromDiffs,
-} from 'jsr:@oneiriq/surql'
+import { diffTables, generateMigrationFromDiffs } from 'jsr:@oneiriq/surql'
 
-const before = { tables: [] }
-const after = { tables: [userSchema, postSchema] }
-
-const diffs = diffSchemas(before, after)
+// Diff an empty schema against the desired tables.
+const diffs = diffTables([], [userSchema, postSchema])
 const migration = generateMigrationFromDiffs(diffs, 'create_users_posts')
 
-console.log(migration.filename)  // e.g. 20240101000001_create_users_posts.surql
+console.log(migration.filename) // e.g. 20240101000001_create_users_posts.surql
 console.log(migration.upSql)
 console.log(migration.downSql)
 ```
@@ -60,72 +57,71 @@ const initial = generateInitialMigration(
 
 ## Running Migrations
 
-### MigrationRunner
+`migrateUp` and `migrateDown` take a connected `Surreal` connection and the list of migrations. `migrateUp` applies every migration not yet recorded in the migration-history table and returns the statuses of the migrations it applied.
 
 ```typescript
-import { MigrationRunner } from 'jsr:@oneiriq/surql'
+import { migrateDown, migrateUp } from 'jsr:@oneiriq/surql'
 
-const runner = new MigrationRunner(client, [migration1, migration2])
+// Apply all pending migrations.
+const applied = await migrateUp(db, [migration1, migration2])
+console.log(applied) // MigrationStatus[]
 
-// Apply all pending migrations
-await runner.up()
+// Revert the most recent migrations down to a target version.
+await migrateDown(db, [migration1, migration2], '20240101000001')
+```
 
-// Roll back the last applied migration
-await runner.down()
+### Migration Status
 
-// Check status
-const status = await runner.status()
-console.log(status)  // { applied: string[], pending: string[] }
+```typescript
+import { getAppliedVersions, getMigrationStatus, getPendingMigrations } from 'jsr:@oneiriq/surql'
+
+const appliedVersions = await getAppliedVersions(db)
+const status = getMigrationStatus(migrations, appliedVersions)
+// MigrationStatus[] — each entry is APPLIED or PENDING
+
+const pending = await getPendingMigrations(db, migrations)
 ```
 
 ### Applying Specific Versions
 
-```typescript
-// Apply up to a specific version
-await runner.upTo('20240101000002')
+Both `migrateUp` and `migrateDown` accept an optional target version. `migrateUp` applies pending migrations up to and including the target; `migrateDown` reverts every applied migration above the target.
 
-// Roll back to a specific version
-await runner.downTo('20240101000001')
+```typescript
+// Apply pending migrations up to a specific version.
+await migrateUp(db, migrations, '20240101000002')
+
+// Revert down to a specific version.
+await migrateDown(db, migrations, '20240101000001')
 ```
 
 ## Migration Discovery
 
-Load migrations from `.surql` files:
+Discover and load migrations from a directory of `.surql` (or `.ts`) files named `YYYYMMDDHHMMSS_description.surql`:
 
 ```typescript
-import { loadMigrationsFromDir } from 'jsr:@oneiriq/surql'
+import { discoverMigrations, loadMigration } from 'jsr:@oneiriq/surql'
 
-const migrations = await loadMigrationsFromDir('./migrations')
-const runner = new MigrationRunner(client, migrations)
+const metadata = await discoverMigrations('./migrations')
+const migrations = await Promise.all(
+  metadata.map((m) => loadMigration(m.filepath)),
+)
+await migrateUp(db, migrations)
 ```
 
 ## Versioning
 
-Migration versions use a sortable format: `YYYYMMDDHHMMSS`.
+Migration versions are sortable 14-digit timestamps (`YYYYMMDDHHMMSS`). `generateMigrationFilename` produces a `<version>_<slug>.surql` filename for a new migration:
 
 ```typescript
-import { generateVersion } from 'jsr:@oneiriq/surql'
+import { generateMigrationFilename } from 'jsr:@oneiriq/surql'
 
-const version = generateVersion()  // e.g. '20240101120000'
-```
-
-## Rollback
-
-```typescript
-import { RollbackManager } from 'jsr:@oneiriq/surql'
-
-const manager = new RollbackManager(client, migrations)
-
-// Rollback last N migrations
-await manager.rollback(3)
-
-// Rollback to checkpoint
-await manager.rollbackTo('20240101000001')
+const filename = generateMigrationFilename('add index to users')
+// e.g. 20240101120000_add_index_to_users.surql
 ```
 
 ## Validation
 
-Validate a set of migrations before applying them:
+Validate a set of migrations before applying them — `validateMigrations` reports duplicate versions and other consistency problems:
 
 ```typescript
 import { validateMigrations } from 'jsr:@oneiriq/surql'
@@ -139,4 +135,4 @@ if (issues.length > 0) {
 ## Next Steps
 
 - [Orchestration](orchestration.md) - Deploy migrations across multiple environments
-- [Versioning & Rollback](versioning_rollback.md) - Advanced rollback strategies
+- [Versioning & Rollback](versioning_rollback.md) - Rollback strategies

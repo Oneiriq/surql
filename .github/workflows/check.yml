@@ -11,12 +11,16 @@ env:
 
 jobs:
   code_quality:
-    runs-on: [self-hosted, aur0]
+    # Reusable workflow — inherits the caller's trigger context. When
+    # called from ci.yml on a fork PR, route to ubuntu-latest so PR
+    # code never executes on aur0. Other callers (release.yml,
+    # workflow_dispatch) see null `pull_request` and pick aur0.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted", "aur0"]') }}
     strategy:
       matrix:
         deno-version: [v2.x]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Setup Deno
         uses: denoland/setup-deno@v2
         with:

@@ -51,7 +51,7 @@ All additive; the old APIs keep working.
 - **Schema drift hooks** (`checkSchemaDrift`, `generatePrecommitConfig`, `watchSchema`) plug into git pre-commit and live dev loops.
 - **`surql` CLI** (`deno task cli …` or `jsr:@oneiriq/surql/cli`). See the [CLI reference](cli.md).
 
-## v1.2.0 → v1.3.0 (Query-UX wave)
+## v1.2.0 → v1.3.0 (Query UX)
 
 ### Adopt `typeRecord` / `typeThing` for record references
 
@@ -127,7 +127,7 @@ CI-only fix: `src/test/integration*.test.ts` is now excluded from the publish-ti
 
 ## v1.3.1 → v1.3.2
 
-Documentation refresh only. No code changes. The rendered site now covers every wave that landed since v1.0.0 (v3 patterns, query UX, CLI, upgrade notes). `deno.json` is bumped to `1.3.2` so the refreshed docs publish alongside the version.
+Documentation refresh only. No code changes. The rendered site now covers every release that landed since v1.0.0 (v3 patterns, query UX, CLI, upgrade notes). `deno.json` is bumped to `1.3.2` so the refreshed docs publish alongside the version.
 
 ## Developer experience — enable the pre-push hook
 

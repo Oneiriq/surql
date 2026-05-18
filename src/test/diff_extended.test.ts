@@ -1,6 +1,6 @@
-import { assertEquals } from '@std/assert'
+import { assertEquals, assertExists, assertStringIncludes } from '@std/assert'
 import { describe, it } from '@std/testing/bdd'
-import { diffEdges, diffPermissions } from '../migration/diff.ts'
+import { diffEdges, diffPermissions, diffTables } from '../migration/diff.ts'
 import { DiffOperation } from '../migration/models.ts'
 import {
   EdgeMode,
@@ -9,9 +9,11 @@ import {
   withEdgeFields,
   withEdgeIndexes,
   withEdgePermissions,
+  withFromTable,
+  withToTable,
 } from '../schema/edge.ts'
-import { intField, stringField } from '../schema/fields.ts'
-import { event, index, TableMode, tableSchema, withPermissions } from '../schema/table.ts'
+import { intField, recordField, stringField } from '../schema/fields.ts'
+import { event, index, TableMode, tableSchema, withFields, withPermissions } from '../schema/table.ts'
 import type { TableDefinition } from '../schema/table.ts'
 
 describe('diffPermissions', () => {
@@ -240,5 +242,59 @@ describe('diffEdges', () => {
     assertEquals(diffs.length, 1)
     assertEquals(diffs[0].operation, DiffOperation.DROP_INDEX)
     assertEquals(diffs[0].table, 'likes')
+  })
+})
+
+describe('diff field-type rendering', () => {
+  it('should render a record link as record<target> in an ADD_FIELD diff', () => {
+    const current = [tableSchema('posts')]
+    const target = [withFields(tableSchema('posts'), recordField('author', 'users'))]
+    const addField = diffTables(current, target).find((d) => d.operation === DiffOperation.ADD_FIELD)
+    assertExists(addField)
+    assertStringIncludes(addField.sql, 'TYPE record<users>;')
+  })
+
+  it('should render an optional field as option<X> in an ADD_FIELD diff', () => {
+    const current = [tableSchema('users')]
+    const target = [withFields(tableSchema('users'), stringField('bio', { optional: true }))]
+    const addField = diffTables(current, target).find((d) => d.operation === DiffOperation.ADD_FIELD)
+    assertExists(addField)
+    assertStringIncludes(addField.sql, 'TYPE option<string>;')
+  })
+
+  it('should detect a changed record link as a MODIFY_FIELD', () => {
+    const current = [withFields(tableSchema('posts'), recordField('author', 'users'))]
+    const target = [withFields(tableSchema('posts'), recordField('author', 'accounts'))]
+    const modify = diffTables(current, target).find((d) => d.operation === DiffOperation.MODIFY_FIELD)
+    assertExists(modify)
+    assertStringIncludes(modify.sql, 'TYPE record<accounts>;')
+  })
+
+  it('should emit a new table’s fields and permissions in the ADD_TABLE diff', () => {
+    const target = [
+      withFields(
+        withPermissions(tableSchema('users'), { select: 'FULL' }),
+        stringField('name'),
+        recordField('manager', 'users', { optional: true }),
+      ),
+    ]
+    const diffs = diffTables([], target)
+    // A new table is still a single ADD_TABLE diff — the full DDL is its sql.
+    assertEquals(diffs.length, 1)
+    assertEquals(diffs[0].operation, DiffOperation.ADD_TABLE)
+    assertStringIncludes(diffs[0].sql, 'DEFINE TABLE users SCHEMAFULL PERMISSIONS FOR select FULL;')
+    assertStringIncludes(diffs[0].sql, 'DEFINE FIELD name ON TABLE users TYPE string;')
+    assertStringIncludes(diffs[0].sql, 'DEFINE FIELD manager ON TABLE users TYPE option<record<users>>;')
+  })
+
+  it('should emit a new edge’s FROM/TO and fields in the ADD_TABLE diff', () => {
+    const newEdge = withEdgeFields(
+      withToTable(withFromTable(edgeSchema('wrote', EdgeMode.RELATION), 'users'), 'posts'),
+      stringField('at'),
+    )
+    const diffs = diffEdges(null, newEdge)
+    assertEquals(diffs.length, 1)
+    assertStringIncludes(diffs[0].sql, 'DEFINE TABLE wrote TYPE RELATION FROM users TO posts;')
+    assertStringIncludes(diffs[0].sql, 'DEFINE FIELD at ON TABLE wrote TYPE string;')
   })
 })

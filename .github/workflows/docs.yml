@@ -3,6 +3,10 @@ name: Deploy Documentation
 on:
   push:
     branches: [main]
+  # Run the strict build on PRs too, so broken links / nav are caught
+  # before merge instead of failing silently in the post-merge deploy.
+  pull_request:
+    branches: [main, 'release/**']
   workflow_dispatch:
 
 permissions:
@@ -10,20 +14,29 @@ permissions:
   pages: write
   id-token: write
 
+# Cancel in-progress doc builds on the same ref when a newer commit arrives.
+# Keyed by ref (NOT a global 'pages' group): a global group serialised every
+# build/deploy across all refs behind one queue, so a stalled run wedged the
+# whole pipeline for hours. Per-ref keying lets a PR build and the main-branch
+# deploy proceed independently; the `github-pages` environment still serialises
+# the actual deployment.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
-    runs-on: [self-hosted, aur0]
+    # Build runs for push to main, dispatch, AND fork PRs (link/nav check).
+    # Same-repo PRs and push run on aur0; fork PRs fall back to
+    # ubuntu-latest so untrusted PR code never executes on aur0.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted", "aur0"]') }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -34,11 +47,13 @@ jobs:
         run: mkdocs build --strict
 
       - name: Upload pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: site/
 
   deploy:
+    # Deploy only on push to main / manual dispatch — never for PR builds.
+    if: github.event_name != 'pull_request'
     runs-on: [self-hosted, aur0]
     needs: build
     environment:
@@ -47,4 +62,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

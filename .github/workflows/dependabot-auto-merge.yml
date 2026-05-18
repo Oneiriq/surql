@@ -1,6 +1,13 @@
 name: Dependabot Auto-merge
 on: pull_request_target
 
+# One auto-merge run per PR ref; a re-trigger cancels the prior in-flight run
+# so a fanned-out stack of dependabot PRs doesn't pile up long-running
+# check-waiters all competing for the same runner.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   pull-requests: write
   contents: write
@@ -12,12 +19,12 @@ jobs:
     steps:
       - name: Get PR metadata
         id: meta
-        uses: dependabot/fetch-metadata@v2
+        uses: dependabot/fetch-metadata@v3
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Wait for required checks
-        uses: lewagon/wait-on-check-action@v1.4.0
+        uses: lewagon/wait-on-check-action@v1.7.0
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           running-workflow-name: auto-merge

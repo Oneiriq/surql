@@ -30,6 +30,12 @@ export interface FieldDefinition {
   readonly value?: string
   readonly readonly?: boolean
   readonly flexible?: boolean
+  /**
+   * Emit the field type wrapped as `option<...>` so a SCHEMAFULL column
+   * accepts the absence of a value (NONE). Without it, every record that
+   * omits the column is rejected on v3 with a coercion error.
+   */
+  readonly optional?: boolean
   readonly permissions?: FieldPermissions
 }
 

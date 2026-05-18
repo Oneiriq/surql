@@ -2,24 +2,49 @@ import { assertEquals, assertRejects, assertStringIncludes } from '@std/assert'
 import { describe, it } from '@std/testing/bdd'
 import { Transaction, TransactionState } from '../connection/transaction.ts'
 
-function mockDb() {
+/** One per-statement entry, mirroring the SDK's `query(...).responses()` shape. */
+type Resp = {
+  success: boolean
+  result?: unknown
+  error?: { kind?: string; details?: { kind?: string } | null }
+}
+
+/** Count the `;`-separated statements in a flushed BEGIN/COMMIT batch. */
+function countStatements(sql: string): number {
+  return sql.split(';').map((s) => s.trim()).filter((s) => s.length > 0).length
+}
+
+/**
+ * Mock connection whose `query()` returns a Query-like object exposing
+ * `.responses()` — the accessor `Transaction.commit()` now uses. Without an
+ * override every statement reports success; `result` is its 0-based index.
+ */
+function mockDb(makeEnvelope?: (sql: string) => Resp[]) {
   const queries: string[] = []
   return {
     queries,
     query: (sql: string) => {
       queries.push(sql)
-      return Promise.resolve([])
+      return {
+        responses: () =>
+          Promise.resolve(
+            makeEnvelope
+              ? makeEnvelope(sql)
+              : Array.from({ length: countStatements(sql) }, (_, i): Resp => ({ success: true, result: i })),
+          ),
+      }
     },
   }
 }
 
+/** Mock connection whose `.responses()` rejects — simulates a transport failure. */
 function failingDb(err: Error) {
   const queries: string[] = []
   return {
     queries,
     query: (sql: string) => {
       queries.push(sql)
-      return Promise.reject(err)
+      return { responses: () => Promise.reject(err) }
     },
   }
 }
@@ -193,6 +218,67 @@ describe('Transaction', () => {
     await tx.begin()
     await tx.execute('SELECT 1')
     await assertRejects(() => tx.commit(), Error, 'Failed to commit transaction')
+    assertEquals(tx.state, TransactionState.FAILED)
+  })
+
+  it('should return the queued statements’ results, in order, from commit()', async () => {
+    // Envelope: BEGIN, statement 1, statement 2, COMMIT.
+    const db = mockDb((sql) => {
+      const n = countStatements(sql)
+      return Array.from({ length: n }, (_, i): Resp => ({
+        success: true,
+        result: i === 0 ? 'BEGIN' : i === n - 1 ? 'COMMIT' : [`row-${i}`],
+      }))
+    })
+    // deno-lint-ignore no-explicit-any
+    const tx = new Transaction(db as any)
+    await tx.begin()
+    await tx.execute('CREATE a SET n = 1')
+    await tx.execute('CREATE b SET n = 2')
+    const results = await tx.commit()
+    // BEGIN / COMMIT bookends stripped; only the two user statements remain.
+    assertEquals(results, [['row-1'], ['row-2']])
+  })
+
+  it('should return an empty array from commit() when nothing was queued', async () => {
+    const db = mockDb()
+    // deno-lint-ignore no-explicit-any
+    const tx = new Transaction(db as any)
+    await tx.begin()
+    assertEquals(await tx.commit(), [])
+  })
+
+  it('should throw and mark FAILED when a statement rolls the batch back', async () => {
+    // BEGIN ok; statement 1 rolled back (NotExecuted cascade); statement 2 threw.
+    const db = mockDb(() => [
+      { success: true },
+      { success: false, error: { kind: 'Query', details: { kind: 'NotExecuted' } } },
+      { success: false, error: { kind: 'Thrown' } },
+    ])
+    // deno-lint-ignore no-explicit-any
+    const tx = new Transaction(db as any)
+    await tx.begin()
+    await tx.execute('CREATE a SET n = 1')
+    await tx.execute("THROW 'boom'")
+    // The cascade entry is skipped; the originating failure is named instead.
+    await assertRejects(
+      () => tx.commit(),
+      Error,
+      'statement 2 of 2 failed (Thrown)',
+    )
+    assertEquals(tx.state, TransactionState.FAILED)
+  })
+
+  it('should distinguish a BEGIN-level failure in the rollback message', async () => {
+    const db = mockDb(() => [
+      { success: false, error: { kind: 'Db' } },
+      { success: false, error: { kind: 'Query', details: { kind: 'NotExecuted' } } },
+    ])
+    // deno-lint-ignore no-explicit-any
+    const tx = new Transaction(db as any)
+    await tx.begin()
+    await tx.execute('SELECT 1')
+    await assertRejects(() => tx.commit(), Error, 'the BEGIN statement failed (Db)')
     assertEquals(tx.state, TransactionState.FAILED)
   })
 })
