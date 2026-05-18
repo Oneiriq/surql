@@ -1,3 +1,16 @@
+/**
+ * CRUD helpers.
+ *
+ * Each helper runs SurrealQL directly and types its result through a
+ * caller-supplied `<T>` generic — a compile-time cast, with no runtime
+ * validation of the returned row shape. Use these when the shape is trusted
+ * and you want zero validation overhead.
+ *
+ * For runtime validation, the `*Typed` helpers in `./typed.ts` run the same
+ * statements and additionally `.parse()` every returned row through a Zod
+ * schema. Reach for those when the row shape is untrusted.
+ */
+
 import type { Surreal } from 'surrealdb'
 import { intoSurQlError } from '../utils/surrealError.ts'
 import { escapeTable, quoteValue, validateIdentifier } from './helpers.ts'

@@ -32,7 +32,6 @@ import {
   arrayField,
   objectField,
   recordField,
-  optionalField,
 } from 'jsr:@oneiriq/surql'
 
 const users = withFields(
@@ -42,6 +41,7 @@ const users = withFields(
   intField('age'),
   boolField('active'),
   datetimeField('created_at'),
+  stringField('bio', { optional: true }),
 )
 ```
 
@@ -57,7 +57,12 @@ const users = withFields(
 | `arrayField(name)` | `array` | Array of values |
 | `objectField(name)` | `object` | Arbitrary object |
 | `recordField(name, table)` | `record<table>` | Record reference |
-| `optionalField(field)` | `option<type>` | Nullable wrapper |
+
+Every field builder accepts an options object as its last argument. Pass
+`{ optional: true }` to emit the type wrapped as `option<...>` — e.g.
+`stringField('bio', { optional: true })` produces
+`DEFINE FIELD bio ... TYPE option<string>` — so a `SCHEMAFULL` column accepts
+the absence of a value.
 
 ### Indexes
 
