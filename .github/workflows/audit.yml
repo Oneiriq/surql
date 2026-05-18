@@ -11,9 +11,21 @@ name: Security Audit
 # is committed. JSR-only updates are still caught by `nightly.yml` via
 # the Deno version matrix.
 
-# Cost-conscious surface: manual-only for now (3000 action minutes/month
-# budget). Re-enable PR/push/schedule when the budget allows.
+# Fires on PRs that touch the dependency surface (paths-filtered so unrelated
+# PRs don't trigger an audit), on a daily schedule to catch newly-published
+# advisories, and on manual dispatch.
 on:
+  pull_request:
+    branches:
+      - main
+      - 'release/**'
+    paths:
+      - 'deno.json'
+      - 'deno.lock'
+      - '.github/workflows/audit.yml'
+  schedule:
+    # Daily at 04:00 UTC.
+    - cron: '0 4 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -26,9 +38,12 @@ env:
 jobs:
   audit:
     name: "npm audit (npm: specifiers from deno.json)"
-    runs-on: [self-hosted, aur0]
+    # aur0 self-hosted for push/schedule/dispatch + same-repo PRs. Fork PRs
+    # fall back to ubuntu-latest — the synthesized `npm install` runs npm
+    # against PR-controlled specifiers, so it must never touch aur0.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted", "aur0"]') }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Setup Node
         uses: actions/setup-node@v4

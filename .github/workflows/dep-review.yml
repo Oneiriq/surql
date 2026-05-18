@@ -6,6 +6,12 @@ on:
       - main
       - 'release/**'
 
+# One run per (workflow, ref); a new push to a PR branch cancels the prior
+# in-flight review.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: write
@@ -16,13 +22,13 @@ env:
 jobs:
   dep-review:
     name: Dependency Review
-    # aur0 self-hosted for same-repo PRs (Oneiriq members); fork PRs
-    # fall back to ubuntu-latest so untrusted PR code never executes
-    # on the org's internal runner. github.event.pull_request is null
-    # on non-PR events → expression picks aur0 by default.
+    # aur0 self-hosted for same-repo PRs (Oneiriq members); fork PRs fall
+    # back to ubuntu-latest so untrusted PR code never executes on the org's
+    # internal runner. github.event.pull_request is null on non-PR events →
+    # expression picks aur0 by default.
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted", "aur0"]') }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Dependency Review
         uses: actions/dependency-review-action@v4
