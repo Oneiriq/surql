@@ -1,6 +1,7 @@
 import { assertEquals, assertStringIncludes } from '@std/assert'
 import { afterEach, describe, it } from '@std/testing/bdd'
 import {
+  arrayField,
   clearRegistry,
   EdgeMode,
   edgeSchema,
@@ -122,6 +123,24 @@ describe('Schema System', () => {
       assertStringIncludes(sql, 'DEFINE TABLE users SCHEMAFULL')
       assertStringIncludes(sql, 'DEFINE FIELD name ON TABLE users TYPE string')
       assertStringIncludes(sql, 'DEFINE FIELD age ON TABLE users TYPE int')
+    })
+
+    it('should emit option<X> for an optional field', () => {
+      const t = withFields(tableSchema('users'), stringField('bio', { optional: true }))
+      const sql = generateTableSql(t)
+      assertStringIncludes(sql, 'DEFINE FIELD bio ON TABLE users TYPE option<string>')
+    })
+
+    it('should wrap a record link as option<record<...>> when optional', () => {
+      const t = withFields(tableSchema('posts'), recordField('author', 'users', { optional: true }))
+      const sql = generateTableSql(t)
+      assertStringIncludes(sql, 'DEFINE FIELD author ON TABLE posts TYPE option<record<users>>')
+    })
+
+    it('should wrap an array element type as option<array<...>> when optional', () => {
+      const t = withFields(tableSchema('posts'), arrayField('tags', FieldType.STRING, { optional: true }))
+      const sql = generateTableSql(t)
+      assertStringIncludes(sql, 'DEFINE FIELD tags ON TABLE posts TYPE option<array<string>>')
     })
 
     it('should generate index DDL', () => {

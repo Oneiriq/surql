@@ -27,14 +27,24 @@ function permissionsClause(
   return clauses.length > 0 ? ` PERMISSIONS ${clauses.join(' ')}` : ''
 }
 
-function fieldTypeToSql(field: FieldDefinition): string {
+/**
+ * Render a field's SurrealQL type. A record link emits `record<target>` and
+ * an array element type emits `array<T>`; an `optional` field wraps the whole
+ * type as `option<...>` so a SCHEMAFULL column accepts NONE.
+ *
+ * Exported so the migration differ renders field types identically to the
+ * initial schema generator.
+ */
+export function fieldTypeToSql(field: FieldDefinition): string {
+  let type: string
   if (field.type === FieldType.RECORD && field.recordLink) {
-    return `record<${field.recordLink}>`
+    type = `record<${field.recordLink}>`
+  } else if (field.type === FieldType.ARRAY && field.arrayType) {
+    type = `array<${field.arrayType}>`
+  } else {
+    type = field.type
   }
-  if (field.type === FieldType.ARRAY && field.arrayType) {
-    return `array<${field.arrayType}>`
-  }
-  return field.type
+  return field.optional ? `option<${type}>` : type
 }
 
 function generateFieldSql(tableName: string, field: FieldDefinition): string {
