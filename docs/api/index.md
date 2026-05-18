@@ -130,9 +130,14 @@ validateSchema(schema)
 generateMigrationFromDiffs(diffs, description)
 generateInitialMigration(upSql, description?)
 createBlankMigration(description)
-diffSchemas(before, after)
+generateMigrationFilename(description)
+diffTables(current, target)
+diffEdges(oldEdge, newEdge)
+migrateUp(db, migrations, targetVersion?)
+migrateDown(db, migrations, targetVersion?)
+createRollbackPlan(migrations, appliedVersions, targetVersion?)
+executeRollback(db, plan)
 validateMigrations(migrations)
-generateVersion()
 ```
 
 ## Orchestration

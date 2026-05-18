@@ -77,9 +77,9 @@ const postSchema = withFields(
 ## 4. Generate a Migration
 
 ```typescript
-import { generateMigrationFromDiffs, diffSchemas } from 'jsr:@oneiriq/surql'
+import { diffTables, generateMigrationFromDiffs } from 'jsr:@oneiriq/surql'
 
-const diffs = diffSchemas({ tables: [] }, { tables: [userSchema, postSchema] })
+const diffs = diffTables([], [userSchema, postSchema])
 const migration = generateMigrationFromDiffs(diffs, 'create_users_posts')
 
 console.log(migration.upSql)
@@ -89,9 +89,10 @@ console.log(migration.downSql)
 ## 5. Apply the Migration
 
 ```typescript
-import { MigrationRunner } from 'jsr:@oneiriq/surql'
+import { migrateUp } from 'jsr:@oneiriq/surql'
 
-const runner = new MigrationRunner(client, [
+// `db` is a connected Surreal connection.
+await migrateUp(db, [
   {
     version: '20240101000001',
     description: 'create_users_posts',
@@ -99,8 +100,6 @@ const runner = new MigrationRunner(client, [
     down: async () => migration.downSql,
   },
 ])
-
-await runner.up()
 ```
 
 ## 6. CRUD Operations

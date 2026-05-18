@@ -4,72 +4,78 @@ surql provides versioning support and rollback capabilities for migration manage
 
 ## Migration Versioning
 
-Migrations use sortable timestamp-based version strings (`YYYYMMDDHHMMSS`).
+Migrations use sortable 14-digit timestamp version strings (`YYYYMMDDHHMMSS`). `generateMigrationFilename` produces the `<version>_<slug>.surql` filename for a new migration; the version is its timestamp prefix.
 
 ```typescript
-import { generateVersion } from 'jsr:@oneiriq/surql'
+import { generateMigrationFilename } from 'jsr:@oneiriq/surql'
 
-const version = generateVersion()
-// e.g. '20240101120000'
+const filename = generateMigrationFilename('add user roles')
+// e.g. 20240101120000_add_user_roles.surql
 ```
 
-## MigrationRunner
+## Applying and Reverting Migrations
+
+`migrateUp` applies every pending migration; `migrateDown` reverts applied migrations down to a target version (or all of them when no target is given).
 
 ```typescript
-import { MigrationRunner } from 'jsr:@oneiriq/surql'
+import { getAppliedVersions, getMigrationStatus, migrateDown, migrateUp } from 'jsr:@oneiriq/surql'
 
-const runner = new MigrationRunner(client, migrations)
+// Apply all pending migrations.
+await migrateUp(db, migrations)
 
-// View migration status
-const status = await runner.status()
-// { applied: string[], pending: string[] }
+// Inspect what is applied vs pending.
+const status = getMigrationStatus(migrations, await getAppliedVersions(db))
 
-// Apply all pending migrations
-await runner.up()
-
-// Roll back the most recently applied migration
-await runner.down()
+// Revert the most recent migration(s) down to a target version.
+await migrateDown(db, migrations, '20240101000001')
 ```
 
-## Targeted Rollback
+## Rollback Planning
+
+For a controlled rollback, build a plan first. `createRollbackPlan` selects the applied migrations to revert and reports a safety assessment; `executeRollback` runs the plan and returns which migrations were reverted.
 
 ```typescript
-// Roll back to a specific version (inclusive rollback)
-await runner.downTo('20240101000001')
+import {
+  createRollbackPlan,
+  executeRollback,
+  getAppliedVersions,
+} from 'jsr:@oneiriq/surql'
+
+const appliedVersions = await getAppliedVersions(db)
+
+// Plan a rollback down to a target version (omit the version to revert all).
+const plan = createRollbackPlan(migrations, appliedVersions, '20240101000001')
+
+console.log(plan.safety) // SAFE | WARNING | UNSAFE
+console.log(plan.issues) // RollbackIssue[] — per-migration warnings
+
+if (plan.safety !== 'UNSAFE') {
+  const result = await executeRollback(db, plan)
+  console.log(result.success, result.migrationsRolledBack)
+}
 ```
 
-## RollbackManager
+`planRollbackToVersion(migrations, appliedVersions, targetVersion)` is a convenience wrapper that always requires an explicit target version.
 
-For more granular control:
+## Rollback Safety
 
-```typescript
-import { RollbackManager } from 'jsr:@oneiriq/surql'
-
-const manager = new RollbackManager(client, migrations)
-
-// Roll back the last N applied migrations
-await manager.rollback(3)
-
-// Roll back to a named checkpoint
-await manager.rollbackTo('20240101000001')
-```
-
-## Creating Rollback Checkpoints
+`analyzeRollbackSafety` classifies a set of schema diffs as `SAFE`, `WARNING`, or `UNSAFE` — a diff that drops a table or field is `UNSAFE`. Use it to gate a rollback in CI:
 
 ```typescript
-import { createCheckpoint } from 'jsr:@oneiriq/surql'
+import { analyzeRollbackSafety } from 'jsr:@oneiriq/surql'
 
-// Save current applied migration state as a checkpoint
-await createCheckpoint(client, 'before_refactor')
-
-// Restore from checkpoint
-await manager.rollbackToCheckpoint('before_refactor')
+const safety = analyzeRollbackSafety(diffs)
+if (safety === 'UNSAFE') {
+  console.error('Rollback would drop data — aborting')
+}
 ```
 
 ## Version History
 
 ```typescript
-const history = await runner.getHistory()
+import { getAppliedMigrations } from 'jsr:@oneiriq/surql'
+
+const history = await getAppliedMigrations(db)
 for (const entry of history) {
   console.log(`${entry.version} applied at ${entry.appliedAt}`)
 }
@@ -83,17 +89,16 @@ import { validateMigrations } from 'jsr:@oneiriq/surql'
 const issues = validateMigrations(migrations)
 if (issues.length > 0) {
   console.error('Validation failed:', issues)
-  process.exit(1)
 }
 
-await runner.up()
+await migrateUp(db, migrations)
 ```
 
 ## Best Practices
 
 - Always write a `down` function for every migration
 - Test rollback paths before applying to production
-- Use `RollbackManager.rollback(1)` to verify `down()` works after each migration
+- Inspect `createRollbackPlan(...).safety` before reverting in production
 - Run `validateMigrations()` in CI before deploying
 
 ## Next Steps

@@ -14,6 +14,7 @@
 - **`quoteValue()` flattened objects, RecordIds, and Dates with `JSON.stringify`.** A nested `SurrealFnValue`, `RecordId`, or `Date` was serialized as a JSON blob rather than SurrealQL — `{ created: <fn> }` came out as `{"created":{"__surqlFn":true,...}}`. `quoteValue()` now recurses through plain objects emitting SurrealQL object literals, renders `RecordId` instances as a record-id literal (`user:alice`), and renders `Date` instances as a `d'...'` datetime literal (a bare quoted ISO string is rejected by v3 datetime-typed fields).
 - **The migration differ emitted incomplete, mistyped DDL.** `ADD_FIELD`/`MODIFY_FIELD` diffs rendered a bare `TYPE <FieldType>`, dropping `record<target>`, array element types, and `option<...>`; `MODIFY_FIELD` only fired on a base-type change, so a changed record link or optionality went undetected. `ADD_TABLE` for a new table emitted only `DEFINE TABLE name mode;` — applying that migration created an empty table. Diffs now render field types through the shared generator, and a new table (or edge) emits its complete DDL.
 - **Docs**: corrected the "Buffered `BEGIN` / `COMMIT`" warning on the v3 Patterns page — the `Found COMMIT TRANSACTION, but ...` code span was immediately followed by the sentence period, rendering a stray trailing `....`.
+- **Docs**: the migration documentation imported and called APIs that surql does not export (`diffSchemas`, `MigrationRunner`, `RollbackManager`, `generateVersion`, and others). Every such example is rewritten against the real exported API (#62).
 
 ### Changed
 

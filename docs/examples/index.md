@@ -79,12 +79,16 @@ const users = await client.query<UserRaw, UserDto>('users')
 
 ```typescript
 import {
-  tableSchema, withFields, withIndexes,
-  stringField, intField, index,
-  TableMode,
-  diffSchemas,
+  diffTables,
   generateMigrationFromDiffs,
-  MigrationRunner,
+  intField,
+  migrateUp,
+  stringField,
+  tableSchema,
+  TableMode,
+  uniqueIndex,
+  withFields,
+  withIndexes,
 } from 'jsr:@oneiriq/surql'
 
 // Define schema
@@ -95,22 +99,20 @@ const userSchema = withIndexes(
     stringField('email'),
     intField('age'),
   ),
-  index('email_idx', 'email', { unique: true }),
+  uniqueIndex('email_idx', 'email'),
 )
 
-// Generate migration from diff
-const diffs = diffSchemas({ tables: [] }, { tables: [userSchema] })
+// Generate a migration from a diff against an empty schema
+const diffs = diffTables([], [userSchema])
 const migration = generateMigrationFromDiffs(diffs, 'create_users')
 
-// Apply migration
-const runner = new MigrationRunner(client, [{
+// Apply migration — `db` is a connected Surreal connection
+await migrateUp(db, [{
   version: '20240101000001',
   description: 'create_users',
   up: async () => migration.upSql,
   down: async () => migration.downSql,
 }])
-
-await runner.up()
 console.log('Migration applied')
 ```
 
