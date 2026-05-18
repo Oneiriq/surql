@@ -1,6 +1,7 @@
 import type { EdgeDefinition } from '../schema/edge.ts'
 import type { FieldDefinition } from '../schema/fields.ts'
 import { type IndexDefinition, IndexType, type TableDefinition } from '../schema/table.ts'
+import { fieldTypeToSql, generateEdgeSql, generateTableSql } from '../schema/sql.ts'
 import { DiffOperation, type SchemaDiff } from './models.ts'
 
 /**
@@ -14,14 +15,17 @@ export function diffTables(
   const currentMap = new Map(current.map((t) => [t.name, t]))
   const targetMap = new Map(target.map((t) => [t.name, t]))
 
-  // Added tables
+  // Added tables — emit the complete table DDL (mode, permissions, fields,
+  // indexes, events). A bare `DEFINE TABLE name mode;` would apply a migration
+  // that creates an empty table, silently dropping every column, index, and
+  // event the target schema declared.
   for (const [name, table] of targetMap) {
     if (!currentMap.has(name)) {
       diffs.push({
         operation: DiffOperation.ADD_TABLE,
         table: name,
         details: `Add table '${name}' (${table.mode})`,
-        sql: `DEFINE TABLE ${name} ${table.mode};`,
+        sql: generateTableSql(table),
       })
     }
   }
@@ -70,7 +74,7 @@ export function diffFields(
         table: tableName,
         field: name,
         details: `Add field '${name}' (${field.type})`,
-        sql: `DEFINE FIELD ${name} ON TABLE ${tableName} TYPE ${field.type};`,
+        sql: `DEFINE FIELD ${name} ON TABLE ${tableName} TYPE ${fieldTypeToSql(field)};`,
       })
     }
   }
@@ -91,13 +95,18 @@ export function diffFields(
     const currentField = currentMap.get(name)
     if (!currentField) continue
 
-    if (currentField.type !== targetField.type) {
+    // Compare the fully-rendered type so a changed record link
+    // (`record<a>` -> `record<b>`), array element type, or optionality is
+    // detected — not only a change of the base `FieldType`.
+    const currentType = fieldTypeToSql(currentField)
+    const targetType = fieldTypeToSql(targetField)
+    if (currentType !== targetType) {
       diffs.push({
         operation: DiffOperation.MODIFY_FIELD,
         table: tableName,
         field: name,
-        details: `Modify field '${name}': ${currentField.type} -> ${targetField.type}`,
-        sql: `DEFINE FIELD ${name} ON TABLE ${tableName} TYPE ${targetField.type};`,
+        details: `Modify field '${name}': ${currentType} -> ${targetType}`,
+        sql: `DEFINE FIELD ${name} ON TABLE ${tableName} TYPE ${targetType};`,
       })
     }
   }
@@ -231,13 +240,14 @@ export function diffEdges(
 ): SchemaDiff[] {
   const diffs: SchemaDiff[] = []
 
-  // Edge added
+  // Edge added — emit the complete relation DDL (FROM/TO constraints,
+  // permissions, fields, indexes, events) rather than a bare DEFINE TABLE.
   if (oldEdge === null && newEdge !== null) {
     diffs.push({
       operation: DiffOperation.ADD_TABLE,
       table: newEdge.name,
       details: `Add edge '${newEdge.name}'`,
-      sql: `DEFINE TABLE ${newEdge.name} TYPE RELATION;`,
+      sql: generateEdgeSql(newEdge),
     })
     return diffs
   }
