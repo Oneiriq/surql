@@ -1,20 +1,29 @@
 # Changelog
 
-## [1.3.5] - 2026-05-15
+## [1.4.0] - 2026-05-17
+
+### Added
+
+- **Optional fields**: `FieldDefinition` gains an `optional` flag — e.g. `stringField('bio', { optional: true })`. The field type is emitted wrapped as `option<...>` (`option<string>`, `option<record<user>>`, `option<array<int>>`) so a `SCHEMAFULL` column accepts the absence of a value. Without it, every record that omits the column is rejected on SurrealDB v3 with a coercion error. The flag defaults off, so existing schemas are unaffected.
+- **WHERE filtering on graph traversal helpers**: `traverse`, `traverseWithDepth`, `getRelatedRecords`, `getOutgoingEdges`, `getIncomingEdges`, and `shortestPath` accept an optional trailing `conditions` argument — a raw SurrealQL predicate appended as a `WHERE` clause, matching the `conditions` argument `queryRecords` already takes. Callers that need row-level filtering (multi-tenant isolation, excluding archived rows) no longer have to drop down to a hand-written query. Omitting it leaves the emitted SurrealQL unchanged.
 
 ### Fixed
 
+- **`Transaction.commit()` discarded the per-statement results.** `Transaction.execute()` documents that the results "become available in the value returned by `commit()`", but `commit()` returned `void`. It now flushes the `BEGIN ...; COMMIT` batch through the SDK's `query(...).responses()` accessor: it returns the per-statement results of the queued statements in order, confirms the batch actually committed, and — on a rollback — names the statement that caused it instead of surfacing only a generic "failed transaction".
+- **Table and edge `PERMISSIONS` produced un-runnable DDL.** `generateTableSql` emitted table-level permissions as a *second* `DEFINE TABLE` statement; on SurrealDB v3 a repeat `DEFINE TABLE` for an existing table fails with `The table '<name>' already exists`, and on a server that did accept it the second statement redefined the table and silently dropped its `SCHEMAFULL`/`SCHEMALESS` mode. `generateEdgeSql` ignored `EdgeDefinition.permissions` entirely, so an edge built with `withEdgePermissions(...)` lost them. Both now fold permissions into the single `DEFINE TABLE` statement.
+- **`quoteValue()` flattened objects, RecordIds, and Dates with `JSON.stringify`.** A nested `SurrealFnValue`, `RecordId`, or `Date` was serialized as a JSON blob rather than SurrealQL — `{ created: <fn> }` came out as `{"created":{"__surqlFn":true,...}}`. `quoteValue()` now recurses through plain objects emitting SurrealQL object literals, renders `RecordId` instances as a record-id literal (`user:alice`), and renders `Date` instances as a `d'...'` datetime literal (a bare quoted ISO string is rejected by v3 datetime-typed fields).
+- **The migration differ emitted incomplete, mistyped DDL.** `ADD_FIELD`/`MODIFY_FIELD` diffs rendered a bare `TYPE <FieldType>`, dropping `record<target>`, array element types, and `option<...>`; `MODIFY_FIELD` only fired on a base-type change, so a changed record link or optionality went undetected. `ADD_TABLE` for a new table emitted only `DEFINE TABLE name mode;` — applying that migration created an empty table. Diffs now render field types through the shared generator, and a new table (or edge) emits its complete DDL.
 - **Docs**: corrected the "Buffered `BEGIN` / `COMMIT`" warning on the v3 Patterns page — the `Found COMMIT TRANSACTION, but ...` code span was immediately followed by the sentence period, rendering a stray trailing `....`.
 
 ### Changed
 
+- **CI**: the documentation workflow runs `mkdocs build --strict` on pull requests; closed open code-scanning alerts; added a label-driven Dependabot auto-merge workflow; moved CI and audit onto the `aur0` self-hosted runner; and added a scheduled `deno-update` workflow (#49–#54).
+- **CI**: hardened the workflow set so runs stop stalling — replaced `docs.yml`'s global `pages` concurrency group (which serialised every build and deploy across all refs behind one queue) with a per-ref group plus `cancel-in-progress`; promoted the `integration` and security `audit` workflows to PR gates on `ubuntu-latest` (from manual-only); added per-ref concurrency groups to the auto-merge, PR-title, and dependency-review workflows; and bumped pinned action versions. Completes #40 and absorbs dependabot PRs #56–#60.
 - **Docs**: replaced informal "wave" phrasing with neutral wording across `docs/query-ux.md`, `docs/migration.md`, and the changelog.
-- **CI**: the documentation workflow now runs `mkdocs build --strict` on pull requests, so broken links and nav errors are caught before merge instead of only in the post-merge deploy.
-- **CI**: closed open code-scanning alerts, added a label-driven Dependabot auto-merge workflow, moved CI/audit onto the `aur0` self-hosted runner, and added the scheduled `deno-update` workflow (#49–#54).
 
 ### Housekeeping
 
-- Version bumped to `1.3.5` in `deno.json`.
+- Version bumped to `1.4.0` in `deno.json`.
 
 ---
 
