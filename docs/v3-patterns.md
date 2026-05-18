@@ -13,10 +13,15 @@ import { transaction } from 'jsr:@oneiriq/surql'
 
 const tx = transaction(db)
 await tx.begin()
-await tx.execute('CREATE user SET name = $name', { name: 'Alice' })
-await tx.execute('CREATE user SET name = $name', { name: 'Bob' })
-await tx.commit() // issues BEGIN TRANSACTION; ...; COMMIT TRANSACTION; in one RPC
+await tx.execute("CREATE user SET name = 'Alice'")
+await tx.execute("CREATE user SET name = 'Bob'")
+// commit() flushes BEGIN TRANSACTION; ...; COMMIT TRANSACTION; as one RPC and
+// returns the per-statement results of the queued statements, in order.
+const results = await tx.commit()
 ```
+
+Statements are buffered as raw SurrealQL — embed values inline rather than
+relying on bound parameters.
 
 !!! warning "Do not stream statements"
     Splitting `BEGIN TRANSACTION` and `COMMIT TRANSACTION` across separate `db.query()` calls worked on v1/v2 but is rejected on v3 with a `Found COMMIT TRANSACTION, but ...` parse error.

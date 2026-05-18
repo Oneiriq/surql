@@ -1,3 +1,18 @@
+/**
+ * Zod-validated CRUD helpers.
+ *
+ * `createTyped`, `getTyped`, `queryTyped`, `updateTyped`, and `upsertTyped`
+ * each run the same SurrealQL as their `*Record` counterpart in `./crud.ts`,
+ * then `.parse()` every returned row through the supplied Zod schema — so the
+ * result is validated at runtime, not merely cast to the expected type.
+ *
+ * Reach for these when the row shape is untrusted: external input, possible
+ * schema drift, or a database you have not verified. When the shape is
+ * trusted, the `*Record` helpers in `./crud.ts` skip the validation pass and
+ * carry no runtime overhead — that is the only difference between the two
+ * surfaces.
+ */
+
 import type { Surreal } from 'surrealdb'
 import type { z } from 'zod'
 import { intoSurQlError } from '../utils/surrealError.ts'
