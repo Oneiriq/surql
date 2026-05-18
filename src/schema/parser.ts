@@ -5,10 +5,22 @@
  * structured `TableDefinition`, `EdgeDefinition`, `FieldDefinition`,
  * `IndexDefinition`, `EventDefinition`, and `AccessDefinition` values.
  *
- * 1:1 port of:
- * - `surql-py/src/surql/schema/parser.py`
- * - `surql-rs/src/schema/parser.rs`
- * - `surql-go/pkg/surql/schema/parser.go`
+ * ## Round-trip symmetry
+ *
+ * The parser is the inverse of the schema emitter (`generateTableSql` /
+ * the migration differ). After a migration is applied, SurrealDB v3 reformats
+ * the stored `DEFINE` statements before returning them via `INFO FOR TABLE`:
+ *
+ * - `TYPE option<X>` is unfolded to `TYPE none | X`.
+ * - `array<E>` keeps its element type but also gains a companion
+ *   `<field>[*]` / `<field>.*` entry holding the element-type spec.
+ * - every field gains a `PERMISSIONS FULL` default clause.
+ * - the table-level `DEFINE TABLE` statement is NOT included in
+ *   `INFO FOR TABLE` at all — only `INFO FOR DB`'s `tables.<name>` carries it.
+ *
+ * The parser normalises these back into the same definition shape the emitter
+ * started from, so a `diffTables(parsedFromDb, codeTables)` returns no spurious
+ * drift when the database and code schemas actually match.
  *
  * Accepts both shapes the server can return:
  * - long-key maps (`fields`, `indexes`, `events`, `tables`, `accesses`)
@@ -23,7 +35,7 @@ import type { EdgeDefinition } from './edge.ts'
 import { EdgeMode } from './edge.ts'
 import type { FieldDefinition } from './fields.ts'
 import { FieldType } from './fields.ts'
-import type { EventDefinition, IndexDefinition, TableDefinition } from './table.ts'
+import type { EventDefinition, IndexDefinition, TableDefinition, TablePermissions } from './table.ts'
 import { HnswDistanceType, IndexType, MTreeDistanceType, MTreeVectorType, TableMode } from './table.ts'
 
 /** Strip `readonly` modifiers so definitions can be built incrementally. */
@@ -70,9 +82,36 @@ export interface DatabaseInfo {
 // ---------------------------------------------------------------------------
 
 const IDENT_RE = /[A-Za-z0-9_]/
-const FIELD_TYPE_RE = /TYPE\s+(\w+)/i
-const READONLY_RE = /\bREADONLY\b/i
-const FLEXIBLE_RE = /\bFLEXIBLE\b/i
+
+/** Top-level clause keywords of a `DEFINE FIELD` statement. */
+const FIELD_CLAUSE_KEYWORDS = [
+  'TYPE',
+  'ASSERT',
+  'DEFAULT',
+  'VALUE',
+  'READONLY',
+  'FLEXIBLE',
+  'PERMISSIONS',
+  'COMMENT',
+] as const
+
+/** Matches (and measures) the `DEFINE FIELD <name> ON [TABLE] <table>` prefix. */
+const DEFINE_FIELD_PREFIX_RE = /^\s*DEFINE\s+FIELD\s+\S+\s+ON\s+(?:TABLE\s+)?\S+\s*/i
+/** `option<Inner>` — captures the inner type expression. */
+const OPTION_TYPE_RE = /^option\s*<\s*([\s\S]+?)\s*>\s*$/i
+/** `record<Target>` — captures the target table name. */
+const RECORD_TYPE_RE = /^record\s*<\s*([A-Za-z_][A-Za-z0-9_]*)/i
+/** `array<Element>` — captures the leading element-type word. */
+const ARRAY_TYPE_RE = /^array\s*<\s*([A-Za-z_][A-Za-z0-9_]*)/i
+/** Leading bare identifier of a type expression. */
+const TYPE_WORD_RE = /^([A-Za-z_][A-Za-z0-9_]*)/
+/**
+ * Trailing `[*]` / `.*` of a SurrealDB array sub-field entry name. SurrealDB v3
+ * reports an array field's per-element type spec as a separate `<field>[*]` /
+ * `<field>.*` entry; those are part of the parent array, not standalone fields.
+ */
+const ARRAY_SUBFIELD_RE = /(?:\[\*\]|\.\*)\s*$/
+
 const COLUMNS_RE = /COLUMNS\s+([^;]+?)(?:UNIQUE|SEARCH|HNSW|MTREE|\s*;|\s*$)/i
 const FIELDS_RE = /FIELDS\s+([^;]+?)(?:UNIQUE|SEARCH|HNSW|MTREE|\s*;|\s*$)/i
 const DIMENSION_RE = /DIMENSION\s+(\d+)/i
@@ -92,6 +131,11 @@ const SIGNIN_RE = /SIGNIN\s+\(([\s\S]+?)\)(?:\s+SIGNUP|\s+DURATION|\s*;|\s*$)/i
 const SESSION_RE = /FOR\s+SESSION\s+(\w+)/i
 const TOKEN_RE = /FOR\s+TOKEN\s+(\w+)/i
 const ACCESS_TYPE_RE = /TYPE\s+(JWT|RECORD)/i
+/** A table-level `PERMISSIONS` clause body, up to a trailing `;` / end. */
+const TABLE_PERMISSIONS_RE = /\bPERMISSIONS\b([\s\S]*?)(?:\s*;\s*$|\s*$)/i
+/** One `FOR <action-list> WHERE <rule>` permission clause. */
+const PERMISSION_CLAUSE_RE =
+  /\bFOR\s+((?:select|create|update|delete)(?:\s*,\s*(?:select|create|update|delete))*)\s+WHERE\s+([\s\S]*?)(?=\s+FOR\s+(?:select|create|update|delete)\b|\s*;|\s*$)/gi
 
 /** Is this byte/char part of an identifier? */
 function isIdent(ch: string): boolean {
@@ -102,7 +146,7 @@ function isIdent(ch: string): boolean {
  * Locate the case-insensitive keyword `kw` in `text`, honouring word
  * boundaries. When `requireWhitespaceLeft` is true, the keyword must sit at
  * position 0 or follow ASCII whitespace — this prevents a `$value` identifier
- * from terminating a clause that is scanning for the literal `VALUE` keyword.
+ * from being mistaken for the literal `VALUE` clause keyword.
  *
  * Returns the character offset at which the keyword starts, or `-1` if not
  * found.
@@ -125,41 +169,6 @@ function findKeyword(text: string, kw: string, requireWhitespaceLeft: boolean): 
     i += 1
   }
   return -1
-}
-
-/**
- * Extract the body of a `<KEYWORD> <body> [TERMINATOR | ;]` clause.
- *
- * `terminators` lists keywords that would end the clause; any such occurrence
- * after the `keyword` anchor truncates the body. A trailing semicolon always
- * truncates. Returns `undefined` when the clause is absent or has an empty
- * body.
- */
-function extractClause(definition: string, keyword: string, terminators: readonly string[]): string | undefined {
-  // Require the anchor keyword to be preceded by whitespace so the parser
-  // does not mistake `$value` / `$before` / `$after` for a clause anchor.
-  const start = findKeyword(definition, keyword, true)
-  if (start < 0) return undefined
-  const afterKw = start + keyword.length
-
-  // Require at least one whitespace after the keyword (matches `\s+`).
-  let restStart = afterKw
-  while (restStart < definition.length && /\s/.test(definition.charAt(restStart))) restStart += 1
-  if (restStart === afterKw) return undefined
-
-  const tail = definition.slice(restStart)
-
-  let end = tail.length
-  for (const term of terminators) {
-    const pos = findKeyword(tail, term, true)
-    if (pos >= 0 && pos < end) end = pos
-  }
-  const semi = tail.indexOf(';')
-  if (semi >= 0 && semi < end) end = semi
-
-  const body = tail.slice(0, end).trim()
-  if (body.length === 0) return undefined
-  return body
 }
 
 // ---------------------------------------------------------------------------
@@ -214,10 +223,9 @@ function stringAt(info: Record<string, unknown>, ...keys: readonly string[]): st
 // Field parsing
 // ---------------------------------------------------------------------------
 
-function extractFieldType(definition: string): FieldType {
-  const m = FIELD_TYPE_RE.exec(definition)
-  if (!m) return FieldType.ANY
-  switch (m[1].toLowerCase()) {
+/** Map a bare SurrealDB type word to a `FieldType`. */
+function fieldTypeFromWord(word: string): FieldType {
+  switch (word.toLowerCase()) {
     case 'string':
       return FieldType.STRING
     case 'int':
@@ -247,24 +255,101 @@ function extractFieldType(definition: string): FieldType {
   }
 }
 
-function extractAssertion(definition: string): string | undefined {
-  return extractClause(definition, 'ASSERT', ['DEFAULT', 'VALUE', 'READONLY', 'FLEXIBLE', 'PERMISSIONS'])
+/** The structured result of parsing a `TYPE` clause body. */
+interface ParsedFieldType {
+  readonly type: FieldType
+  readonly recordLink?: string
+  readonly arrayType?: FieldType
+  readonly optional: boolean
 }
 
-function extractDefault(definition: string): string | undefined {
-  return extractClause(definition, 'DEFAULT', ['VALUE', 'READONLY', 'FLEXIBLE', 'PERMISSIONS', 'ASSERT'])
+/**
+ * Parse the body of a `TYPE` clause into a structured field type.
+ *
+ * Recognises the shapes the emitter writes AND the shapes SurrealDB v3 returns
+ * after storing them:
+ *
+ * - `string` → `{ STRING }`
+ * - `option<string>` / `none | string` → `{ STRING, optional }`
+ * - `record<user>` → `{ RECORD, recordLink: 'user' }`
+ * - `option<record<user>>` / `none | record<user>` → `{ RECORD, recordLink, optional }`
+ * - `array<int>` → `{ ARRAY, arrayType: INT }`
+ * - empty / unknown → `{ ANY }`
+ */
+function parseFieldType(typeBody: string): ParsedFieldType {
+  if (!typeBody || typeBody.trim().length === 0) return { type: FieldType.ANY, optional: false }
+
+  let str = typeBody.trim()
+  let optional = false
+
+  // `option<X>` → X, optional.
+  const optionMatch = OPTION_TYPE_RE.exec(str)
+  if (optionMatch) {
+    optional = true
+    str = optionMatch[1].trim()
+  }
+
+  // `none | X` (the form v3 stores `option<X>` as) → X, optional. A union with
+  // more than one non-`none` branch is not representable, so fall back to ANY.
+  const unionParts = str.split('|').map((p) => p.trim()).filter((p) => p.length > 0)
+  if (unionParts.some((p) => p.toLowerCase() === 'none')) {
+    optional = true
+    const nonNone = unionParts.filter((p) => p.toLowerCase() !== 'none')
+    if (nonNone.length === 1) {
+      str = nonNone[0]
+    } else if (nonNone.length > 1) {
+      return { type: FieldType.ANY, optional }
+    }
+  }
+
+  // `record<target>`.
+  const recordMatch = RECORD_TYPE_RE.exec(str)
+  if (recordMatch) {
+    return { type: FieldType.RECORD, recordLink: recordMatch[1], optional }
+  }
+
+  // `array<element>`.
+  const arrayMatch = ARRAY_TYPE_RE.exec(str)
+  if (arrayMatch) {
+    return { type: FieldType.ARRAY, arrayType: fieldTypeFromWord(arrayMatch[1]), optional }
+  }
+
+  // Bare type word.
+  const wordMatch = TYPE_WORD_RE.exec(str)
+  if (!wordMatch) return { type: FieldType.ANY, optional }
+  return { type: fieldTypeFromWord(wordMatch[1]), optional }
 }
 
-function extractValue(definition: string): string | undefined {
-  return extractClause(definition, 'VALUE', ['DEFAULT', 'READONLY', 'FLEXIBLE', 'PERMISSIONS', 'ASSERT'])
-}
+/**
+ * Split a `DEFINE FIELD` statement into its clause bodies, keyed by the
+ * upper-cased clause keyword.
+ *
+ * The `DEFINE FIELD <name> ON [TABLE] <table>` prefix is skipped before
+ * scanning, so a field whose NAME collides with a clause keyword (`default`,
+ * `comment`, ...) does not corrupt the parse. Flag clauses (`READONLY`,
+ * `FLEXIBLE`) appear as keys with an empty-string body.
+ */
+function splitFieldClauses(definition: string): Record<string, string> {
+  const prefixMatch = DEFINE_FIELD_PREFIX_RE.exec(definition)
+  const body = prefixMatch ? definition.slice(prefixMatch[0].length) : definition
 
-function extractReadonly(definition: string): boolean {
-  return READONLY_RE.test(definition)
-}
+  const anchors: { keyword: string; start: number }[] = []
+  for (const keyword of FIELD_CLAUSE_KEYWORDS) {
+    const start = findKeyword(body, keyword, true)
+    if (start >= 0) anchors.push({ keyword, start })
+  }
+  anchors.sort((a, b) => a.start - b.start)
 
-function extractFlexible(definition: string): boolean {
-  return FLEXIBLE_RE.test(definition)
+  const clauses: Record<string, string> = {}
+  for (let i = 0; i < anchors.length; i += 1) {
+    const { keyword, start } = anchors[i]
+    const bodyStart = start + keyword.length
+    const bodyEnd = i + 1 < anchors.length ? anchors[i + 1].start : body.length
+    let clauseBody = body.slice(bodyStart, bodyEnd).trim()
+    if (clauseBody.endsWith(';')) clauseBody = clauseBody.slice(0, -1).trimEnd()
+    clauses[keyword] = clauseBody
+  }
+  return clauses
 }
 
 /**
@@ -273,25 +358,34 @@ function extractFlexible(definition: string): boolean {
  */
 export function parseField(name: string, definition: string): FieldDefinition | undefined {
   if (!definition || definition.trim().length === 0) return undefined
-  const base: Mutable<FieldDefinition> = {
-    name,
-    type: extractFieldType(definition),
-  }
-  const assertion = extractAssertion(definition)
-  if (assertion !== undefined) base.assertion = assertion
-  const defaultValue = extractDefault(definition)
-  if (defaultValue !== undefined) base.defaultValue = defaultValue
-  const value = extractValue(definition)
-  if (value !== undefined) base.value = value
-  if (extractReadonly(definition)) base.readonly = true
-  if (extractFlexible(definition)) base.flexible = true
+
+  const clauses = splitFieldClauses(definition)
+  const parsedType = parseFieldType(clauses.TYPE ?? '')
+
+  const base: Mutable<FieldDefinition> = { name, type: parsedType.type }
+  if (parsedType.recordLink !== undefined) base.recordLink = parsedType.recordLink
+  if (parsedType.arrayType !== undefined) base.arrayType = parsedType.arrayType
+  if (parsedType.optional) base.optional = true
+  if (clauses.ASSERT) base.assertion = clauses.ASSERT
+  if (clauses.DEFAULT) base.defaultValue = clauses.DEFAULT
+  if (clauses.VALUE) base.value = clauses.VALUE
+  if ('READONLY' in clauses) base.readonly = true
+  if ('FLEXIBLE' in clauses) base.flexible = true
+
   return Object.freeze(base) as FieldDefinition
 }
 
-/** Parse every entry of a `fd` / `fields` map into `FieldDefinition` values. */
+/**
+ * Parse every entry of a `fd` / `fields` map into `FieldDefinition` values.
+ *
+ * SurrealDB v3 array sub-field entries (`<field>[*]` / `<field>.*`) are skipped
+ * — they are the parent array's element-type spec, not standalone fields, and
+ * the differ must not see them as orphan columns.
+ */
 export function parseFields(fd: Record<string, string>): FieldDefinition[] {
   const out: FieldDefinition[] = []
   for (const [name, def] of Object.entries(fd)) {
+    if (ARRAY_SUBFIELD_RE.test(name)) continue
     const parsed = parseField(name, def)
     if (parsed !== undefined) out.push(parsed)
   }
@@ -574,7 +668,7 @@ export function parseAccess(name: string, definition: string): AccessDefinition 
 /**
  * Parse the `DEFINE TABLE` statement string into a `TableMode`.
  *
- * An empty input defaults to `TableMode.SCHEMALESS`, mirroring py/rs/go.
+ * An empty input defaults to `TableMode.SCHEMALESS`.
  */
 export function parseTableMode(definition: string): TableMode {
   if (!definition) return TableMode.SCHEMALESS
@@ -586,23 +680,74 @@ export function parseTableMode(definition: string): TableMode {
 }
 
 /**
+ * Extract the table-level `PERMISSIONS` clause from a `DEFINE TABLE` statement.
+ *
+ * - `PERMISSIONS NONE` / `PERMISSIONS FULL` → `undefined`. Those are the
+ *   trivial default-deny / default-allow postures a table reports when no
+ *   per-action rules were declared; the code-side helper has no representation
+ *   for them either, so returning `undefined` matches.
+ * - `PERMISSIONS FOR select WHERE <r1> FOR create WHERE <r2> ...` (expanded
+ *   form) → `{ select: '<r1>', create: '<r2>', ... }`.
+ * - `PERMISSIONS FOR select, create, update, delete WHERE <rule>` (compact
+ *   comma form — what SurrealDB v3 emits when several actions share a rule) →
+ *   the rule exploded across every named action.
+ *
+ * Returns `undefined` when no `PERMISSIONS` clause is present.
+ */
+export function parseTablePermissions(definition: string): TablePermissions | undefined {
+  if (!definition) return undefined
+
+  const permMatch = TABLE_PERMISSIONS_RE.exec(definition)
+  if (!permMatch) return undefined
+
+  const body = permMatch[1].trim()
+  if (body.length === 0) return undefined
+  if (body.toUpperCase() === 'NONE' || body.toUpperCase() === 'FULL') return undefined
+
+  const rules: Mutable<TablePermissions> = {}
+  PERMISSION_CLAUSE_RE.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = PERMISSION_CLAUSE_RE.exec(body)) !== null) {
+    const rule = m[2].trim()
+    for (const raw of m[1].split(',')) {
+      const action = raw.trim().toLowerCase()
+      if (action === 'select' || action === 'create' || action === 'update' || action === 'delete') {
+        rules[action] = rule
+      }
+    }
+  }
+
+  return Object.keys(rules).length > 0 ? Object.freeze(rules) : undefined
+}
+
+/**
  * Parse a SurrealDB `INFO FOR TABLE` response into a `TableDefinition`.
  *
  * Accepts either short-key (`fd`, `ix`, `ev`) or long-key (`fields`,
- * `indexes`, `events`) shapes. When both are present the long-key map wins,
- * matching py/rs behaviour.
+ * `indexes`, `events`) shapes.
+ *
+ * SurrealDB v3's `INFO FOR TABLE` does NOT include the table-level
+ * `DEFINE TABLE` statement, so table mode and `PERMISSIONS` cannot be
+ * recovered from it alone. Pass `defineTable` — the `DEFINE TABLE <name> ...`
+ * string from `INFO FOR DB`'s `tables.<name>` entry — to recover them; without
+ * it, the mode defaults to `SCHEMALESS` and permissions are dropped.
  *
  * @param tableName - name of the table (attached to the returned definition)
  * @param info - the raw `INFO FOR TABLE` response object
+ * @param defineTable - optional `DEFINE TABLE` statement, sourced from `INFO FOR DB`
  * @throws {@link SchemaParseError} when `info` is not a plain object
  */
-export function parseTableInfo(tableName: string, info: unknown): TableDefinition {
+export function parseTableInfo(tableName: string, info: unknown, defineTable?: string): TableDefinition {
   if (!tableName || tableName.trim().length === 0) {
     throw new SchemaParseError('parseTableInfo: table name is required')
   }
   const obj = expectObject(info, `INFO FOR TABLE ${tableName}`)
 
-  const mode = parseTableMode(stringAt(obj, 'tb'))
+  // The caller-supplied DEFINE TABLE wins; fall back to the legacy `tb` key
+  // inside the INFO FOR TABLE response (SurrealDB v1/v2 shape).
+  const tbSource = defineTable !== undefined ? defineTable : stringAt(obj, 'tb')
+  const mode = parseTableMode(tbSource)
+  const permissions = parseTablePermissions(tbSource)
 
   const fieldsValue = pickMap(obj, ['fields', 'fd'])
   const fields = fieldsValue ? parseFields(valueToStringMap(fieldsValue)) : []
@@ -613,13 +758,16 @@ export function parseTableInfo(tableName: string, info: unknown): TableDefinitio
   const eventsValue = pickMap(obj, ['events', 'ev'])
   const events = eventsValue ? parseEvents(valueToStringMap(eventsValue)) : []
 
-  return Object.freeze({
+  const table: Mutable<TableDefinition> = {
     name: tableName,
     mode,
     fields,
     indexes,
     events,
-  })
+  }
+  if (permissions !== undefined) table.permissions = permissions
+
+  return Object.freeze(table)
 }
 
 function isEdgeDefinition(source: string): boolean {
@@ -636,16 +784,19 @@ function extractRelationEndpoints(definition: string): { from: string; to: strin
  * Parse a SurrealDB `INFO FOR TABLE` response that represents a relation edge
  * into an `EdgeDefinition`.
  *
- * @throws {@link SchemaParseError} when `info` is not a plain object or the
- *   underlying `tb` statement is not a `TYPE RELATION ...` declaration.
+ * As with {@link parseTableInfo}, pass `defineTable` — the
+ * `DEFINE TABLE <name> TYPE RELATION ...` string from `INFO FOR DB` — so the
+ * `FROM` / `TO` endpoints can be recovered on SurrealDB v3.
+ *
+ * @throws {@link SchemaParseError} when `info` is not a plain object
  */
-export function parseEdgeInfo(edgeName: string, info: unknown): EdgeDefinition {
+export function parseEdgeInfo(edgeName: string, info: unknown, defineTable?: string): EdgeDefinition {
   if (!edgeName || edgeName.trim().length === 0) {
     throw new SchemaParseError('parseEdgeInfo: edge name is required')
   }
   const obj = expectObject(info, `INFO FOR TABLE ${edgeName}`)
 
-  const tb = stringAt(obj, 'tb')
+  const tb = defineTable !== undefined ? defineTable : stringAt(obj, 'tb')
   const endpoints = extractRelationEndpoints(tb)
 
   const fieldsValue = pickMap(obj, ['fields', 'fd'])
@@ -666,6 +817,8 @@ export function parseEdgeInfo(edgeName: string, info: unknown): EdgeDefinition {
     edge.fromTable = endpoints.from
     edge.toTable = endpoints.to
   }
+  const permissions = parseTablePermissions(tb)
+  if (permissions !== undefined) edge.permissions = permissions
 
   return Object.freeze(edge)
 }
@@ -676,6 +829,10 @@ export function parseEdgeInfo(edgeName: string, info: unknown): EdgeDefinition {
  * Tables declared with `TYPE RELATION FROM ... TO ...` are routed into
  * `edges`; every other table becomes a `TableDefinition` in `tables`.
  * Database-level access definitions land in `accesses`.
+ *
+ * Each table's `DEFINE TABLE` statement carries the mode and `PERMISSIONS`,
+ * which are parsed here. Fields, indexes, and events still require a per-table
+ * `INFO FOR TABLE` lookup (see {@link parseTableInfo}).
  *
  * @throws {@link SchemaParseError} when `info` is not a plain object
  */
@@ -703,16 +860,19 @@ export function parseDbInfo(info: unknown): DatabaseInfo {
           edge.fromTable = endpoints.from
           edge.toTable = endpoints.to
         }
+        const edgePermissions = parseTablePermissions(rawDef)
+        if (edgePermissions !== undefined) edge.permissions = edgePermissions
         edges[name] = Object.freeze(edge)
       } else {
-        const mode = parseTableMode(rawDef)
-        const table: TableDefinition = {
+        const table: Mutable<TableDefinition> = {
           name,
-          mode,
+          mode: parseTableMode(rawDef),
           fields: [],
           indexes: [],
           events: [],
         }
+        const permissions = parseTablePermissions(rawDef)
+        if (permissions !== undefined) table.permissions = permissions
         tables[name] = Object.freeze(table)
       }
     }
@@ -738,15 +898,38 @@ export function parseDbInfo(info: unknown): DatabaseInfo {
 // Live-database helpers (convenience)
 // ---------------------------------------------------------------------------
 
+/** Look up a table's `DEFINE TABLE` statement in an `INFO FOR DB` response. */
+function defineTableFromDbInfo(dbInfo: unknown, tableName: string): string | undefined {
+  if (!isPlainObject(dbInfo)) return undefined
+  const tb = pickMap(dbInfo, ['tables', 'tb'])
+  const def = tb?.[tableName]
+  return typeof def === 'string' ? def : undefined
+}
+
 /**
  * Fetch an `INFO FOR TABLE <name>` response from a live database and parse it
  * into a `TableDefinition`.
+ *
+ * Also issues an `INFO FOR DB` query to recover the table-level `DEFINE TABLE`
+ * statement (mode + `PERMISSIONS`), which SurrealDB v3 omits from
+ * `INFO FOR TABLE`. If that second query fails the table info is still parsed,
+ * just without table-level mode/permissions.
  */
 export async function fetchTableInfo(db: Surreal, tableName: string): Promise<TableDefinition> {
   try {
     const results = await db.query<Record<string, unknown>[]>(`INFO FOR TABLE ${tableName}`)
     const raw = (results as unknown[])[0]
-    return parseTableInfo(tableName, raw)
+
+    let defineTable: string | undefined
+    try {
+      const dbResults = await db.query<Record<string, unknown>[]>('INFO FOR DB')
+      defineTable = defineTableFromDbInfo((dbResults as unknown[])[0], tableName)
+    } catch {
+      // INFO FOR DB is best-effort here — fall back to INFO FOR TABLE alone.
+      defineTable = undefined
+    }
+
+    return parseTableInfo(tableName, raw, defineTable)
   } catch (e) {
     throw intoSurQlError(`Failed to fetch info for table ${tableName}:`, e)
   }

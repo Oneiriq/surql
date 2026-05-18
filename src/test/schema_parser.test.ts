@@ -14,6 +14,7 @@ import {
   parseIndexes,
   parseTableInfo,
   parseTableMode,
+  parseTablePermissions,
   SchemaParseError,
 } from '../schema/parser.ts'
 import { AccessType } from '../schema/access.ts'
@@ -33,8 +34,9 @@ import {
   withFields,
   withIndexes,
 } from '../schema/table.ts'
-import { datetimeField, intField, stringField } from '../schema/fields.ts'
+import { arrayField, datetimeField, intField, recordField, stringField } from '../schema/fields.ts'
 import { generateTableSql } from '../schema/sql.ts'
+import { diffTables } from '../migration/diff.ts'
 
 // ---------------------------------------------------------------------------
 // parseTableMode
@@ -666,5 +668,160 @@ describe('fetchDbInfo', () => {
       Error,
       'Failed to fetch database info',
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Round-trip symmetry — the shapes SurrealDB v3 returns from INFO
+// ---------------------------------------------------------------------------
+
+describe('parseField — v3 type round-trip', () => {
+  it('unfolds `none | X` (how v3 stores option<X>) to an optional field', () => {
+    const f = parseField('opt_str', 'DEFINE FIELD opt_str ON t TYPE none | string PERMISSIONS FULL')!
+    assertEquals(f.type, FieldType.STRING)
+    assertEquals(f.optional, true)
+  })
+
+  it('also accepts the emitted `option<X>` form', () => {
+    const f = parseField('opt_str', 'DEFINE FIELD opt_str ON t TYPE option<string>')!
+    assertEquals(f.type, FieldType.STRING)
+    assertEquals(f.optional, true)
+  })
+
+  it('extracts the target table from `record<X>`', () => {
+    const f = parseField('rec', 'DEFINE FIELD rec ON t TYPE record<other> PERMISSIONS FULL')!
+    assertEquals(f.type, FieldType.RECORD)
+    assertEquals(f.recordLink, 'other')
+    assertEquals(f.optional, undefined)
+  })
+
+  it('handles an optional record link (`none | record<X>`)', () => {
+    const f = parseField('opt_rec', 'DEFINE FIELD opt_rec ON t TYPE none | record<other> PERMISSIONS FULL')!
+    assertEquals(f.type, FieldType.RECORD)
+    assertEquals(f.recordLink, 'other')
+    assertEquals(f.optional, true)
+  })
+
+  it('extracts the element type from `array<T>`', () => {
+    const f = parseField('arr', 'DEFINE FIELD arr ON t TYPE array<int> PERMISSIONS FULL')!
+    assertEquals(f.type, FieldType.ARRAY)
+    assertEquals(f.arrayType, FieldType.INT)
+  })
+
+  it('reads FLEXIBLE alongside an unfolded option type', () => {
+    const f = parseField('flex', 'DEFINE FIELD flex ON t TYPE none | object FLEXIBLE PERMISSIONS FULL')!
+    assertEquals(f.type, FieldType.OBJECT)
+    assertEquals(f.optional, true)
+    assertEquals(f.flexible, true)
+  })
+
+  it('does not mistake a field named after a clause keyword for that clause', () => {
+    // SurrealDB allows a field literally named `default` / `comment`.
+    const def = parseField('default', 'DEFINE FIELD default ON t TYPE string PERMISSIONS FULL')!
+    assertEquals(def.name, 'default')
+    assertEquals(def.type, FieldType.STRING)
+    assertEquals(def.defaultValue, undefined)
+
+    const comment = parseField('comment', 'DEFINE FIELD comment ON t TYPE int PERMISSIONS FULL')!
+    assertEquals(comment.type, FieldType.INT)
+  })
+})
+
+describe('parseFields — array sub-field entries', () => {
+  it('skips `<field>.*` and `<field>[*]` element-spec entries', () => {
+    const out = parseFields({
+      arr: 'DEFINE FIELD arr ON t TYPE array<int>',
+      'arr.*': 'DEFINE FIELD arr.* ON t TYPE int',
+      'tags[*]': 'DEFINE FIELD tags[*] ON t TYPE string',
+      plain: 'DEFINE FIELD plain ON t TYPE string',
+    })
+    assertEquals(out.map((f) => f.name).sort(), ['arr', 'plain'])
+  })
+})
+
+describe('parseTablePermissions', () => {
+  it('returns undefined for NONE / FULL / absent', () => {
+    assertEquals(parseTablePermissions('DEFINE TABLE t SCHEMAFULL'), undefined)
+    assertEquals(parseTablePermissions('DEFINE TABLE t SCHEMAFULL PERMISSIONS NONE'), undefined)
+    assertEquals(parseTablePermissions('DEFINE TABLE t SCHEMAFULL PERMISSIONS FULL'), undefined)
+  })
+
+  it('parses the compact comma-joined form v3 emits', () => {
+    const p = parseTablePermissions(
+      'DEFINE TABLE t TYPE NORMAL SCHEMAFULL PERMISSIONS FOR select, create, update, delete WHERE tenant = $auth.tenant',
+    )!
+    assertEquals(p.select, 'tenant = $auth.tenant')
+    assertEquals(p.create, 'tenant = $auth.tenant')
+    assertEquals(p.update, 'tenant = $auth.tenant')
+    assertEquals(p.delete, 'tenant = $auth.tenant')
+  })
+
+  it('parses the expanded per-action form', () => {
+    const p = parseTablePermissions(
+      'DEFINE TABLE t SCHEMAFULL PERMISSIONS FOR select WHERE published = true FOR create WHERE $auth.id != NONE',
+    )!
+    assertEquals(p.select, 'published = true')
+    assertEquals(p.create, '$auth.id != NONE')
+    assertEquals(p.update, undefined)
+  })
+})
+
+describe('parseTableInfo — defineTable argument', () => {
+  it('recovers mode + permissions from the DEFINE TABLE string', () => {
+    // SurrealDB v3 omits `tb` from INFO FOR TABLE — mode/permissions come
+    // from the DEFINE TABLE statement in INFO FOR DB.
+    const info = { fields: {}, indexes: {}, events: {} }
+    const t = parseTableInfo(
+      't',
+      info,
+      'DEFINE TABLE t TYPE NORMAL SCHEMAFULL PERMISSIONS FOR select, create, update, delete WHERE true',
+    )
+    assertEquals(t.mode, TableMode.SCHEMAFULL)
+    assertEquals(t.permissions?.select, 'true')
+    assertEquals(t.permissions?.delete, 'true')
+  })
+
+  it('defaults to SCHEMALESS with no permissions when neither tb nor defineTable is given', () => {
+    const t = parseTableInfo('t', { fields: {} })
+    assertEquals(t.mode, TableMode.SCHEMALESS)
+    assertEquals(t.permissions, undefined)
+  })
+})
+
+describe('parseEdgeInfo — defineTable argument', () => {
+  it('recovers FROM/TO endpoints from the DEFINE TABLE string', () => {
+    const e = parseEdgeInfo('wrote', { fields: {} }, 'DEFINE TABLE wrote TYPE RELATION FROM user TO post')
+    assertEquals(e.fromTable, 'user')
+    assertEquals(e.toTable, 'post')
+  })
+})
+
+describe('round-trip: code schema → v3 INFO shape → parse → diff', () => {
+  it('reports zero drift for a table that matches the database', () => {
+    const code = withFields(
+      tableSchema('t', TableMode.SCHEMAFULL),
+      stringField('plain'),
+      stringField('opt_str', { optional: true }),
+      recordField('rec', 'other'),
+      recordField('opt_rec', 'other', { optional: true }),
+      arrayField('arr', FieldType.INT),
+      intField('default'),
+    )
+    // The exact shapes SurrealDB v3.0.5 returns for that emitted schema:
+    // option<X> unfolds to `none | X`, every field gains `PERMISSIONS FULL`,
+    // and the array field gains a companion `arr.*` element-spec entry.
+    const info = {
+      fields: {
+        plain: 'DEFINE FIELD plain ON t TYPE string PERMISSIONS FULL',
+        opt_str: 'DEFINE FIELD opt_str ON t TYPE none | string PERMISSIONS FULL',
+        rec: 'DEFINE FIELD rec ON t TYPE record<other> PERMISSIONS FULL',
+        opt_rec: 'DEFINE FIELD opt_rec ON t TYPE none | record<other> PERMISSIONS FULL',
+        arr: 'DEFINE FIELD arr ON t TYPE array<int> PERMISSIONS FULL',
+        'arr.*': 'DEFINE FIELD arr.* ON t TYPE int PERMISSIONS FULL',
+        default: 'DEFINE FIELD default ON t TYPE int PERMISSIONS FULL',
+      },
+    }
+    const parsed = parseTableInfo('t', info, 'DEFINE TABLE t TYPE NORMAL SCHEMAFULL')
+    assertEquals(diffTables([parsed], [code]), [])
   })
 })
