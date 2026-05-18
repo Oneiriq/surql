@@ -1,5 +1,6 @@
 import { assertEquals, assertThrows } from '@std/assert'
 import { describe, it } from '@std/testing/bdd'
+import { RecordId } from 'surrealdb'
 import { escapeTable, quoteValue, ReturnFormat, validateIdentifier } from '../query/helpers.ts'
 
 describe('quoteValue', () => {
@@ -48,9 +49,44 @@ describe('quoteValue', () => {
     assertEquals(quoteValue([[1, 2], [3]]), '[[1, 2], [3]]')
   })
 
-  it('should JSON.stringify plain objects', () => {
-    const result = quoteValue({ key: 'val' })
-    assertEquals(result, '{"key":"val"}')
+  it('should format plain objects as SurrealQL object literals', () => {
+    assertEquals(quoteValue({ key: 'val' }), "{ key: 'val' }")
+    assertEquals(quoteValue({ a: 1, b: true }), '{ a: 1, b: true }')
+  })
+
+  it('should handle empty objects', () => {
+    assertEquals(quoteValue({}), '{}')
+  })
+
+  it('should single-quote object keys that are not bare identifiers', () => {
+    assertEquals(quoteValue({ 'weird-key': 1 }), "{ 'weird-key': 1 }")
+  })
+
+  it('should recurse through nested objects and arrays', () => {
+    assertEquals(
+      quoteValue({ tags: ['x', 'y'], meta: { n: 2 } }),
+      "{ tags: ['x', 'y'], meta: { n: 2 } }",
+    )
+  })
+
+  it('should render RecordId values as record-id literals', () => {
+    assertEquals(quoteValue(new RecordId('user', 'alice')), 'user:alice')
+    // The SDK brackets ids that contain non-bare characters.
+    assertEquals(quoteValue(new RecordId('community', 'lakewood-village')), 'community:⟨lakewood-village⟩')
+  })
+
+  it('should render a RecordId nested inside an object', () => {
+    assertEquals(quoteValue({ author: new RecordId('user', 'bob') }), '{ author: user:bob }')
+  })
+
+  it('should render Date values as SurrealQL datetime literals', () => {
+    assertEquals(quoteValue(new Date('2026-05-17T12:00:00.000Z')), "d'2026-05-17T12:00:00.000Z'")
+  })
+
+  it('should render a nested SurrealFnValue as raw SurrealQL, not a JSON object', () => {
+    const fn = { __surqlFn: true, surql: 'time::now()' }
+    assertEquals(quoteValue({ created: fn }), '{ created: time::now() }')
+    assertEquals(quoteValue([fn]), '[time::now()]')
   })
 
   it('should handle empty arrays', () => {
