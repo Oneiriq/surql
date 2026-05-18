@@ -23,6 +23,7 @@ import {
   uniqueIndex,
   validateSchema,
   withEdgeFields,
+  withEdgePermissions,
   withEvents,
   withFields,
   withFromTable,
@@ -167,13 +168,50 @@ describe('Schema System', () => {
       assertEquals(sql.includes('IF NOT EXISTS'), false)
     })
 
-    it('should apply IF NOT EXISTS to the secondary permissions DEFINE TABLE line', () => {
+    it('should fold table permissions into the single DEFINE TABLE statement', () => {
+      const t = withPermissions(tableSchema('users'), {
+        select: 'WHERE user = $auth.id',
+        create: 'FULL',
+      })
+      const sql = generateTableSql(t)
+      // Exactly ONE DEFINE TABLE for the table — a repeat DEFINE TABLE errors
+      // on SurrealDB v3 and would drop the SCHEMAFULL mode.
+      assertEquals((sql.match(/DEFINE TABLE users/g) ?? []).length, 1)
+      assertStringIncludes(
+        sql,
+        'DEFINE TABLE users SCHEMAFULL PERMISSIONS FOR select WHERE user = $auth.id FOR create FULL;',
+      )
+    })
+
+    it('should apply IF NOT EXISTS exactly once to a table with permissions', () => {
       const t = withPermissions(tableSchema('users'), { select: 'WHERE user = $auth' })
       const sql = generateTableSql(t, { ifNotExists: true })
-      // Both the primary and the permissions line must carry IF NOT EXISTS.
-      const occurrences = sql.match(/DEFINE TABLE IF NOT EXISTS users/g) ?? []
-      assertEquals(occurrences.length, 2)
-      assertStringIncludes(sql, 'PERMISSIONS FOR select WHERE user = $auth')
+      assertEquals((sql.match(/DEFINE TABLE IF NOT EXISTS users/g) ?? []).length, 1)
+      assertStringIncludes(sql, 'SCHEMAFULL PERMISSIONS FOR select WHERE user = $auth')
+    })
+
+    it('should emit edge permissions on the relation DEFINE TABLE', () => {
+      const e = withEdgePermissions(
+        withToTable(withFromTable(edgeSchema('follows'), 'users'), 'users'),
+        { select: 'WHERE in = $auth.id', delete: 'NONE' },
+      )
+      const sql = generateEdgeSql(e)
+      assertStringIncludes(
+        sql,
+        'DEFINE TABLE follows TYPE RELATION FROM users TO users PERMISSIONS FOR select WHERE in = $auth.id FOR delete NONE;',
+      )
+    })
+
+    it('should fold field permissions into the DEFINE FIELD statement', () => {
+      const t = withFields(
+        tableSchema('users'),
+        stringField('email', { permissions: { select: 'FULL', update: 'WHERE user = $auth.id' } }),
+      )
+      const sql = generateTableSql(t)
+      assertStringIncludes(
+        sql,
+        'DEFINE FIELD email ON TABLE users TYPE string PERMISSIONS FOR select FULL FOR update WHERE user = $auth.id;',
+      )
     })
 
     it('should emit DEFINE TABLE IF NOT EXISTS ... TYPE RELATION for edges', () => {

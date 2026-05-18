@@ -6,6 +6,27 @@ import type { EdgeDefinition } from './edge.ts'
 import type { EventDefinition, IndexDefinition, TableDefinition } from './table.ts'
 import { IndexType } from './table.ts'
 
+/**
+ * Render a `PERMISSIONS` clause for a `DEFINE TABLE`, `DEFINE FIELD`, or
+ * relation statement.
+ *
+ * Each configured action contributes a `FOR <action>` sub-clause; the
+ * SurrealDB v3 grammar folds them all into the owning statement, separated
+ * by whitespace. The returned string carries a leading space (or is empty
+ * when no permissions are set) so callers can append it unconditionally.
+ */
+function permissionsClause(
+  perms: { select?: string; create?: string; update?: string; delete?: string } | undefined,
+): string {
+  if (!perms) return ''
+  const clauses: string[] = []
+  if (perms.select) clauses.push(`FOR select ${perms.select}`)
+  if (perms.create) clauses.push(`FOR create ${perms.create}`)
+  if (perms.update) clauses.push(`FOR update ${perms.update}`)
+  if (perms.delete) clauses.push(`FOR delete ${perms.delete}`)
+  return clauses.length > 0 ? ` PERMISSIONS ${clauses.join(' ')}` : ''
+}
+
 function fieldTypeToSql(field: FieldDefinition): string {
   if (field.type === FieldType.RECORD && field.recordLink) {
     return `record<${field.recordLink}>`
@@ -38,16 +59,7 @@ function generateFieldSql(tableName: string, field: FieldDefinition): string {
   if (field.readonly) {
     parts[0] += ' READONLY'
   }
-  if (field.permissions) {
-    const perms: string[] = []
-    if (field.permissions.select) perms.push(`FOR select ${field.permissions.select}`)
-    if (field.permissions.create) perms.push(`FOR create ${field.permissions.create}`)
-    if (field.permissions.update) perms.push(`FOR update ${field.permissions.update}`)
-    if (field.permissions.delete) perms.push(`FOR delete ${field.permissions.delete}`)
-    if (perms.length > 0) {
-      parts[0] += ` PERMISSIONS ${perms.join(', ')}`
-    }
-  }
+  parts[0] += permissionsClause(field.permissions)
 
   return parts[0] + ';'
 }
@@ -88,16 +100,20 @@ function generateEventSql(tableName: string, evt: EventDefinition): string {
 /**
  * Generate SurrealQL DDL for a table definition.
  *
+ * Table-level permissions are folded into the single `DEFINE TABLE`
+ * statement. They must NOT be emitted as a second `DEFINE TABLE` line: on
+ * SurrealDB v3 a repeat `DEFINE TABLE` for an existing table fails with
+ * `The table '<name>' already exists`, and even where it parsed it would
+ * redefine the table — silently dropping its `SCHEMAFULL`/`SCHEMALESS` mode.
+ *
  * Pass `ifNotExists: true` to emit `DEFINE TABLE IF NOT EXISTS ...` so the
- * statement is idempotent against an existing schema. The flag also applies
- * to the secondary `DEFINE TABLE ... PERMISSIONS` line when table-level
- * permissions are configured.
+ * statement is idempotent against an existing schema.
  */
 export function generateTableSql(table: TableDefinition, options: { ifNotExists?: boolean } = {}): string {
   const ine = options.ifNotExists ? ' IF NOT EXISTS' : ''
   const lines: string[] = []
 
-  lines.push(`DEFINE TABLE${ine} ${table.name} ${table.mode};`)
+  lines.push(`DEFINE TABLE${ine} ${table.name} ${table.mode}${permissionsClause(table.permissions)};`)
 
   for (const field of table.fields) {
     lines.push(generateFieldSql(table.name, field))
@@ -111,22 +127,15 @@ export function generateTableSql(table: TableDefinition, options: { ifNotExists?
     lines.push(generateEventSql(table.name, evt))
   }
 
-  if (table.permissions) {
-    const perms: string[] = []
-    if (table.permissions.select) perms.push(`FOR select ${table.permissions.select}`)
-    if (table.permissions.create) perms.push(`FOR create ${table.permissions.create}`)
-    if (table.permissions.update) perms.push(`FOR update ${table.permissions.update}`)
-    if (table.permissions.delete) perms.push(`FOR delete ${table.permissions.delete}`)
-    if (perms.length > 0) {
-      lines.push(`DEFINE TABLE${ine} ${table.name} PERMISSIONS ${perms.join(', ')};`)
-    }
-  }
-
   return lines.join('\n')
 }
 
 /**
  * Generate SurrealQL DDL for an edge definition.
+ *
+ * Edge permissions are folded into the relation's `DEFINE TABLE` statement;
+ * an edge built with `withEdgePermissions(...)` previously had its
+ * permissions silently dropped.
  *
  * Pass `ifNotExists: true` to emit `DEFINE TABLE IF NOT EXISTS ... TYPE RELATION`
  * for idempotent schema application.
@@ -138,6 +147,7 @@ export function generateEdgeSql(edge: EdgeDefinition, options: { ifNotExists?: b
   let tableDef = `DEFINE TABLE${ine} ${edge.name} TYPE ${edge.mode}`
   if (edge.fromTable) tableDef += ` FROM ${edge.fromTable}`
   if (edge.toTable) tableDef += ` TO ${edge.toTable}`
+  tableDef += permissionsClause(edge.permissions)
   lines.push(tableDef + ';')
 
   for (const field of edge.fields) {
