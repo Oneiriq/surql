@@ -44,9 +44,9 @@ Integration tests now run against `surrealdb/surrealdb:v3.0.5`. If your deployme
 
 All additive; the old APIs keep working.
 
-- **Structured schema parser** (`parseDbInfo`, `parseTableInfo`, `parseFields`, `parseIndexes`, `parseEvents`, `parseAccess`, `parseEdgeInfo`) lets you round-trip a live schema into the code-first definition types and back.
-- **`loadSettings()` / `getSettings()`** replaces bespoke env + YAML/TOML loaders. Follows the same layered precedence as surql-py / surql-rs / surql-go.
-- **`GraphQuery`** replaces ad-hoc graph traversal strings. **v3 note**: the `->edge<depth>` suffix that surql-py emits is not valid on v3; the TS builder unrolls `depth` into repeated `->edge->?` hops instead.
+- **Structured schema parser** (`parseDbInfo`, `parseTableInfo`, `parseEdgeInfo`, `parseFields`, `parseIndexes`, `parseEvents`, `parseAccess`, `parseTablePermissions`) round-trips a live schema back into the code-first definition types. **v3 note**: pass `parseTableInfo` / `parseEdgeInfo` the `defineTable` argument — the table's `DEFINE TABLE` statement from `INFO FOR DB` — so table mode and `PERMISSIONS` are recovered; `fetchTableInfo` fetches it for you.
+- **`loadSettings()` / `getSettings()`** replaces bespoke env + YAML/TOML loaders, reading env vars, `.env`, `surql.yaml`, and `surql.toml` with layered precedence.
+- **`GraphQuery`** replaces ad-hoc graph traversal strings. **v3 note**: a positive `depth` is unrolled into repeated `->edge->?` hops — the `->edge<depth>` suffix form is not valid on v3.
 - **Migration squash** (`squashMigrations`) flattens old migrations into one `.surql` file while preserving checksums.
 - **Schema drift hooks** (`checkSchemaDrift`, `generatePrecommitConfig`, `watchSchema`) plug into git pre-commit and live dev loops.
 - **`surql` CLI** (`deno task cli …` or `jsr:@oneiriq/surql/cli`). See the [CLI reference](cli.md).
