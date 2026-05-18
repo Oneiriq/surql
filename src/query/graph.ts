@@ -3,15 +3,32 @@ import { intoSurQlError } from '../utils/surrealError.ts'
 import { quoteValue, validateIdentifier } from './helpers.ts'
 
 /**
- * Traverse a graph path from a starting record
+ * Render an optional `WHERE` clause for a graph query.
+ *
+ * Returns the clause with a leading space, or an empty string when no
+ * condition is supplied, so callers can append it unconditionally. The
+ * condition is a raw SurrealQL predicate — the same shape `queryRecords`
+ * accepts.
+ */
+function whereClause(conditions?: string): string {
+  return conditions ? ` WHERE ${conditions}` : ''
+}
+
+/**
+ * Traverse a graph path from a starting record.
+ *
+ * Pass `conditions` (a raw SurrealQL predicate) to filter the traversed
+ * records — e.g. multi-tenant isolation or excluding archived rows. Without
+ * it the traversal is unfiltered, as before.
  */
 export async function traverse<T = Record<string, unknown>>(
   db: Surreal,
   start: string,
   path: string,
+  conditions?: string,
 ): Promise<T[]> {
   try {
-    const sql = `SELECT * FROM ${start}.${path}`
+    const sql = `SELECT * FROM ${start}.${path}${whereClause(conditions)}`
     const results = await db.query<T[]>(sql) as unknown as T[][]
     return results[0] || ([] as T[])
   } catch (e) {
@@ -20,18 +37,23 @@ export async function traverse<T = Record<string, unknown>>(
 }
 
 /**
- * Traverse with explicit depth control
+ * Traverse with explicit depth control.
+ *
+ * Pass `conditions` (a raw SurrealQL predicate) to filter the traversed
+ * records.
  */
 export async function traverseWithDepth<T = Record<string, unknown>>(
   db: Surreal,
   start: string,
   edgeTable: string,
   direction: '->' | '<-' | '<->',
-  depth: number = 1,
+  depth?: number,
+  conditions?: string,
 ): Promise<T[]> {
   try {
-    const path = Array.from({ length: depth }, () => `${direction}${edgeTable}`).join('')
-    const sql = `SELECT * FROM ${start}${path}.*`
+    const hops = depth ?? 1
+    const path = Array.from({ length: hops }, () => `${direction}${edgeTable}`).join('')
+    const sql = `SELECT * FROM ${start}${path}.*${whereClause(conditions)}`
     const results = await db.query<T[]>(sql) as unknown as T[][]
     return results[0] || ([] as T[])
   } catch (e) {
@@ -80,16 +102,21 @@ export async function removeRelation(
 }
 
 /**
- * Get records related via a specific edge
+ * Get records related via a specific edge.
+ *
+ * Pass `conditions` (a raw SurrealQL predicate) to filter the related
+ * records.
  */
 export async function getRelatedRecords<T = Record<string, unknown>>(
   db: Surreal,
   record: string,
   edge: string,
-  direction: '->' | '<-' = '->',
+  direction?: '->' | '<-',
+  conditions?: string,
 ): Promise<T[]> {
   try {
-    const sql = `SELECT * FROM ${record}${direction}${edge}.*`
+    const dir = direction ?? '->'
+    const sql = `SELECT * FROM ${record}${dir}${edge}.*${whereClause(conditions)}`
     const results = await db.query<T[]>(sql) as unknown as T[][]
     return results[0] || ([] as T[])
   } catch (e) {
@@ -98,15 +125,18 @@ export async function getRelatedRecords<T = Record<string, unknown>>(
 }
 
 /**
- * Get outgoing edges from a record
+ * Get outgoing edges from a record.
+ *
+ * Pass `conditions` (a raw SurrealQL predicate) to filter the matched edges.
  */
 export async function getOutgoingEdges<T = Record<string, unknown>>(
   db: Surreal,
   record: string,
   edge: string,
+  conditions?: string,
 ): Promise<T[]> {
   try {
-    const sql = `SELECT * FROM ${record}->${edge}`
+    const sql = `SELECT * FROM ${record}->${edge}${whereClause(conditions)}`
     const results = await db.query<T[]>(sql) as unknown as T[][]
     return results[0] || ([] as T[])
   } catch (e) {
@@ -115,15 +145,18 @@ export async function getOutgoingEdges<T = Record<string, unknown>>(
 }
 
 /**
- * Get incoming edges to a record
+ * Get incoming edges to a record.
+ *
+ * Pass `conditions` (a raw SurrealQL predicate) to filter the matched edges.
  */
 export async function getIncomingEdges<T = Record<string, unknown>>(
   db: Surreal,
   record: string,
   edge: string,
+  conditions?: string,
 ): Promise<T[]> {
   try {
-    const sql = `SELECT * FROM ${record}<-${edge}`
+    const sql = `SELECT * FROM ${record}<-${edge}${whereClause(conditions)}`
     const results = await db.query<T[]>(sql) as unknown as T[][]
     return results[0] || ([] as T[])
   } catch (e) {
@@ -150,20 +183,24 @@ export async function countRelated(
 }
 
 /**
- * Find shortest path between two records
+ * Find shortest path between two records.
+ *
+ * Pass `conditions` (a raw SurrealQL predicate) to filter the path records.
  */
 export async function shortestPath(
   db: Surreal,
   from: string,
   to: string,
   edge: string,
-  maxDepth: number = 10,
+  maxDepth?: number,
+  conditions?: string,
 ): Promise<Record<string, unknown>[]> {
   validateIdentifier(edge)
   try {
+    const depth = maxDepth ?? 10
     const sql = `SELECT * FROM fn::graph::shortest_path(${quoteValue(from)}, ${quoteValue(to)}, ${
       quoteValue(edge)
-    }, ${maxDepth})`
+    }, ${depth})${whereClause(conditions)}`
     const results = await db.query<Record<string, unknown>[]>(sql) as unknown as Record<string, unknown>[][]
     return results[0] || []
   } catch (e) {
