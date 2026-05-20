@@ -121,7 +121,12 @@ const M_RE = /\bM\s+(\d+)/i
 const WHEN_RE = /WHEN\s+([\s\S]+?)\s+THEN/i
 const THEN_BRACE_RE = /THEN\s+\{([\s\S]+?)\}(?:\s*;|\s*$)/i
 const THEN_BARE_RE = /THEN\s+([\s\S]+?)(?:\s*;|\s*$)/i
-const RELATION_RE = /TYPE\s+RELATION\s+FROM\s+(\w+)\s+TO\s+(\w+)/i
+/** `TYPE RELATION` keyword anywhere in a `DEFINE TABLE` string. */
+const TYPE_RELATION_RE = /\bTYPE\s+RELATION\b/i
+/** `FROM <ident>` clause in a `DEFINE TABLE` string, independent of `TO`. */
+const EDGE_FROM_RE = /\bFROM\s+([A-Za-z_][A-Za-z0-9_]*)/i
+/** `TO <ident>` clause in a `DEFINE TABLE` string, independent of `FROM`. */
+const EDGE_TO_RE = /\bTO\s+([A-Za-z_][A-Za-z0-9_]*)/i
 const ALGORITHM_RE = /ALGORITHM\s+(\w+)/i
 const KEY_RE = /KEY\s+'([^']*)'/i
 const URL_RE = /URL\s+'([^']*)'/i
@@ -771,23 +776,70 @@ export function parseTableInfo(tableName: string, info: unknown, defineTable?: s
 }
 
 function isEdgeDefinition(source: string): boolean {
-  return RELATION_RE.test(source)
-}
-
-function extractRelationEndpoints(definition: string): { from: string; to: string } | undefined {
-  const m = RELATION_RE.exec(definition)
-  if (!m) return undefined
-  return { from: m[1], to: m[2] }
+  return TYPE_RELATION_RE.test(source)
 }
 
 /**
- * Parse a SurrealDB `INFO FOR TABLE` response that represents a relation edge
- * into an `EdgeDefinition`.
+ * Parse the edge mode encoded in a `DEFINE TABLE` statement string.
+ *
+ * Recognises the three shapes the emitter writes:
+ * - `TYPE RELATION ...` → {@link EdgeMode.RELATION}
+ * - `SCHEMAFULL` → {@link EdgeMode.SCHEMAFULL}
+ * - anything else (including empty / `SCHEMALESS`) → {@link EdgeMode.SCHEMALESS}
+ *
+ * `TYPE RELATION` wins over `SCHEMAFULL` / `SCHEMALESS` because SurrealDB v3
+ * allows `DEFINE TABLE <name> TYPE RELATION SCHEMAFULL ...` and the edge mode
+ * is what matters for downstream diffing.
+ */
+function parseEdgeMode(definition: string): EdgeMode {
+  if (!definition) return EdgeMode.SCHEMALESS
+  if (TYPE_RELATION_RE.test(definition)) return EdgeMode.RELATION
+  const upper = definition.toUpperCase()
+  if (upper.includes('SCHEMAFULL')) return EdgeMode.SCHEMAFULL
+  return EdgeMode.SCHEMALESS
+}
+
+/**
+ * Extract `FROM <table>` and `TO <table>` from a `DEFINE TABLE` string without
+ * requiring them to appear together. SurrealDB v3 emits `RELATION FROM x TO y`
+ * for typed edges, but the parser stays permissive on read: a malformed live
+ * definition that lost one clause surfaces as missing-endpoint drift instead
+ * of a parse failure.
+ */
+function extractEdgeEndpoints(definition: string): { from?: string; to?: string } {
+  if (!definition) return {}
+  const out: { from?: string; to?: string } = {}
+  const fromMatch = EDGE_FROM_RE.exec(definition)
+  if (fromMatch) out.from = fromMatch[1]
+  const toMatch = EDGE_TO_RE.exec(definition)
+  if (toMatch) out.to = toMatch[1]
+  return out
+}
+
+/**
+ * Parse a SurrealDB `INFO FOR TABLE` response that represents a graph edge
+ * into an `EdgeDefinition`. Counterpart to {@link parseTableInfo} for graph-edge
+ * tables defined via `edgeSchema` / {@link EdgeDefinition}.
+ *
+ * Edges round-trip through SurrealDB as regular tables in `INFO FOR DB.tables`;
+ * the only thing that makes them edges is the `TYPE RELATION FROM <x> TO <y>`
+ * clause on the `DEFINE TABLE` statement. Without an edge-aware parser, a
+ * drift detector using {@link parseTableInfo} against an edge table would see
+ * it as a SCHEMALESS table missing every field-level diff signal an edge
+ * expects (mode, from/to constraints, auto `in`/`out` proxies).
+ *
+ * For `RELATION`-mode edges the auto-emitted `in` and `out` fields SurrealDB
+ * stores are skipped — they are implicit when `TYPE RELATION` is set, so the
+ * code-side `EdgeDefinition` does not declare them either.
  *
  * As with {@link parseTableInfo}, pass `defineTable` — the
- * `DEFINE TABLE <name> TYPE RELATION ...` string from `INFO FOR DB` — so the
- * `FROM` / `TO` endpoints can be recovered on SurrealDB v3.
+ * `DEFINE TABLE <name> ...` string from `INFO FOR DB` — so the mode,
+ * `FROM`/`TO` endpoints, and `PERMISSIONS` can be recovered on SurrealDB v3
+ * (which omits the table-level `DEFINE` from `INFO FOR TABLE`).
  *
+ * @param edgeName - edge table name (attached to the returned definition)
+ * @param info - raw `INFO FOR TABLE` response object
+ * @param defineTable - optional `DEFINE TABLE` statement, sourced from `INFO FOR DB`
  * @throws {@link SchemaParseError} when `info` is not a plain object
  */
 export function parseEdgeInfo(edgeName: string, info: unknown, defineTable?: string): EdgeDefinition {
@@ -797,10 +849,19 @@ export function parseEdgeInfo(edgeName: string, info: unknown, defineTable?: str
   const obj = expectObject(info, `INFO FOR TABLE ${edgeName}`)
 
   const tb = defineTable !== undefined ? defineTable : stringAt(obj, 'tb')
-  const endpoints = extractRelationEndpoints(tb)
+  const mode = parseEdgeMode(tb)
+  const endpoints = extractEdgeEndpoints(tb)
 
   const fieldsValue = pickMap(obj, ['fields', 'fd'])
-  const fields = fieldsValue ? parseFields(valueToStringMap(fieldsValue)) : []
+  let fields = fieldsValue ? parseFields(valueToStringMap(fieldsValue)) : []
+  // SurrealDB auto-emits `in` and `out` fields for TYPE RELATION edges. They
+  // are implicit when `TYPE RELATION` is set, so the code-side EdgeDefinition
+  // does not declare them. Strip them on read so round-trip diffs do not flag
+  // them as orphan additions.
+  if (mode === EdgeMode.RELATION) {
+    fields = fields.filter((f) => f.name !== 'in' && f.name !== 'out')
+  }
+
   const indexesValue = pickMap(obj, ['indexes', 'ix'])
   const indexes = indexesValue ? parseIndexes(valueToStringMap(indexesValue)) : []
   const eventsValue = pickMap(obj, ['events', 'ev'])
@@ -808,15 +869,13 @@ export function parseEdgeInfo(edgeName: string, info: unknown, defineTable?: str
 
   const edge: Mutable<EdgeDefinition> = {
     name: edgeName,
-    mode: EdgeMode.RELATION,
+    mode,
     fields,
     indexes,
     events,
   }
-  if (endpoints) {
-    edge.fromTable = endpoints.from
-    edge.toTable = endpoints.to
-  }
+  if (endpoints.from !== undefined) edge.fromTable = endpoints.from
+  if (endpoints.to !== undefined) edge.toTable = endpoints.to
   const permissions = parseTablePermissions(tb)
   if (permissions !== undefined) edge.permissions = permissions
 
@@ -848,18 +907,16 @@ export function parseDbInfo(info: unknown): DatabaseInfo {
     for (const [name, rawDef] of Object.entries(tb)) {
       if (typeof rawDef !== 'string') continue
       if (isEdgeDefinition(rawDef)) {
-        const endpoints = extractRelationEndpoints(rawDef)
+        const endpoints = extractEdgeEndpoints(rawDef)
         const edge: Mutable<EdgeDefinition> = {
           name,
-          mode: EdgeMode.RELATION,
+          mode: parseEdgeMode(rawDef),
           fields: [],
           indexes: [],
           events: [],
         }
-        if (endpoints) {
-          edge.fromTable = endpoints.from
-          edge.toTable = endpoints.to
-        }
+        if (endpoints.from !== undefined) edge.fromTable = endpoints.from
+        if (endpoints.to !== undefined) edge.toTable = endpoints.to
         const edgePermissions = parseTablePermissions(rawDef)
         if (edgePermissions !== undefined) edge.permissions = edgePermissions
         edges[name] = Object.freeze(edge)

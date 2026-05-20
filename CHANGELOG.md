@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.5.0] - 2026-05-19
+
+### Added
+
+- **Edge round-trip parity in the schema parser** (`parseEdgeInfo`): edges defined via `edgeSchema` / `EdgeDefinition` now round-trip through `parseEdgeInfo` with the same fidelity tables already had. Edge mode is detected from the `DEFINE TABLE` statement — `TYPE RELATION` resolves to `EdgeMode.RELATION`, `SCHEMAFULL` to `EdgeMode.SCHEMAFULL`, anything else to `EdgeMode.SCHEMALESS` — so SCHEMAFULL edges no longer collapse into the RELATION case. `FROM <table>` and `TO <table>` are parsed independently so a malformed live definition that lost one clause surfaces as missing-endpoint drift instead of a parse failure. On `TYPE RELATION` edges the auto-emitted `in` and `out` fields SurrealDB stores are stripped on parse — they are implicit when `TYPE RELATION` is set, so the code-side `EdgeDefinition` does not declare them and round-trip diffs were flagging them as orphan additions. Per-action `PERMISSIONS` (including the comma-joined `FOR select, create, update, delete WHERE …` shape v3 emits) round-trip via the existing `parseTablePermissions` helper.
+- **`stripBrackets(value)` helper** in `src/utils/helpers.ts`, also re-exported from the package root. SurrealDB v3 wraps record-id keys that contain anything other than `[a-zA-Z_][a-zA-Z0-9_]*` or pure digits in unicode angle brackets `⟨ … ⟩` (U+27E8 / U+27E9). Downstream consumers that wanted the bare `table:id` wire shape were calling `value.replace('⟨', '').replace('⟩', '')` themselves at every API boundary; `stripBrackets` centralises that strip and also accepts the legacy ASCII `< … >` form, so consumers can drop their own ad-hoc `.replace` calls. `null` and `undefined` are passed through untouched so the helper is safe to apply unconditionally. `recordIdToString` now delegates to `stripBrackets`, picking up ASCII-bracket handling as a side benefit.
+- **Transaction-bound `upsertMany`**: the `client` argument now accepts either a `Surreal` connection (autocommit, legacy behaviour) or an active `Transaction` (atomic). In the transaction mode the same per-record `UPSERT … CONTENT { … }` statements are queued on the supplied transaction via `trx.execute`, inheriting the surrounding `BEGIN TRANSACTION` / `COMMIT TRANSACTION` framing so a single bad record rolls the *entire* batch back on commit instead of leaving the database half-seeded. The mode is auto-detected — no call-site rewrite is needed beyond passing the transaction handle. Results are not available at call time in transaction mode (`Transaction.execute` buffers); the per-row results land in `Transaction.commit()`'s return value. `upsertMany` also gains an optional `conflictFields` parameter (matching the surql-py port) — fields in this list are emitted as a `WHERE field = value AND …` clause appended to each UPSERT. The conflict values are inlined rather than parameterised because `Transaction.execute` does not bind params.
+
+### Fixed
+
+- **`buildUpsertQuery` emitted `UPSERT INTO <table> [ {…}, {…} ]` which SurrealDB v3 rejects with a parse error.** The function now emits one `UPSERT <target> CONTENT { … }` statement per item — the v3-correct per-record shape used across the surql-py / surql-rs / surql-go ports — joined by `;`. Items with an `id` field are upserted by record id; items without one are upserted into the table. The `conflictFields` parameter (when supplied) now emits inline-value WHERE clauses (`WHERE email = 'a@b.com'`) instead of the previous `$item.email` placeholder shape, because the per-statement query has no `$item` binding in scope.
+- **`upsertMany` ran one round-trip RPC per record.** The function now batches all per-record `UPSERT … CONTENT { … }` statements into a single multi-statement query in autocommit mode, reducing N records from N RPCs to 1 RPC and matching surql-py's autocommit behaviour. Records returned by the server are concatenated across the per-statement result envelopes so the caller still gets one row per upsert.
+- **`upsertMany` did not honour the `id` field as the UPSERT target.** Previously every record landed via a table-level `UPSERT <table> SET k = v` regardless of whether the input declared `id: 'users:alice'`. The per-record target is now `data.id` when present (so `{id: 'users:alice', name: 'Alice'}` becomes `UPSERT users:alice CONTENT { name: 'Alice' }`) and falls back to the bare table otherwise. The `id` field is stripped from the CONTENT payload to avoid double-writing.
+
+### Verified
+
+- `deno fmt --check src/` — clean.
+- `deno lint src/` — clean.
+- `deno check src/cli/main.ts src/cli/mod.ts mod.ts` — clean.
+- `deno task test --ignore='src/test/integration*.test.ts'` — **199 passed (1752 steps), 0 failed** (was 195 / 1712 on 1.4.0; +40 regression-test steps covering the three new features and the two query-shape fixes).
+
+### Housekeeping
+
+- Version bumped to `1.5.0` in `deno.json`.
+
+---
+
 ## [1.4.0] - 2026-05-17
 
 ### Added
