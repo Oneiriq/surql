@@ -140,17 +140,17 @@ describe('Python Parity - New Items', () => {
   })
 
   describe('Query - Build Helpers', () => {
-    it('should build upsert query', () => {
+    it('should build upsert query (per-record CONTENT, v3-safe)', () => {
       const sql = buildUpsertQuery('users', [{ name: 'Alice' }, { name: 'Bob' }])
-      assertStringIncludes(sql, 'UPSERT INTO users')
+      assertStringIncludes(sql, 'UPSERT users CONTENT')
       assertStringIncludes(sql, 'Alice')
       assertStringIncludes(sql, 'Bob')
     })
 
-    it('should build upsert query with conflict fields', () => {
+    it('should build upsert query with conflict fields inlined', () => {
       const sql = buildUpsertQuery('users', [{ email: 'a@b.com' }], ['email'])
       assertStringIncludes(sql, 'WHERE')
-      assertStringIncludes(sql, 'email = $item.email')
+      assertStringIncludes(sql, "email = 'a@b.com'")
     })
 
     it('should return empty string for empty items', () => {

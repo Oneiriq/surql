@@ -7,30 +7,44 @@ describe('buildUpsertQuery', () => {
     assertEquals(buildUpsertQuery('users', []), '')
   })
 
-  it('should build a simple upsert query', () => {
+  it('should build a simple upsert query (per-record CONTENT, v3-safe)', () => {
     const result = buildUpsertQuery('users', [{ name: 'Alice', age: 30 }])
-    assertStringIncludes(result, 'UPSERT INTO users')
+    // v3 rejects `UPSERT INTO <table> [ ... ]`; the per-record CONTENT form is
+    // the only portable shape across surql-py / surql-rs / surql-go.
+    assertStringIncludes(result, 'UPSERT users CONTENT')
     assertStringIncludes(result, "name: 'Alice'")
     assertStringIncludes(result, 'age: 30')
     assertEquals(result.endsWith(';'), true)
   })
 
-  it('should build upsert for multiple items', () => {
+  it('should emit one UPSERT statement per item', () => {
     const result = buildUpsertQuery('users', [
       { name: 'Alice', age: 30 },
       { name: 'Bob', age: 25 },
     ])
+    // Two records → two UPSERT statements.
+    assertEquals(result.split('UPSERT users CONTENT').length - 1, 2)
     assertStringIncludes(result, "name: 'Alice'")
     assertStringIncludes(result, "name: 'Bob'")
   })
 
-  it('should include conflict fields in WHERE clause', () => {
+  it('should target a specific record id when `id` is present in the item', () => {
+    const result = buildUpsertQuery('users', [{ id: 'user:alice', name: 'Alice' }])
+    // The `id` field becomes the UPSERT target (not part of the CONTENT payload).
+    assertStringIncludes(result, 'UPSERT user:alice CONTENT')
+    assertEquals(result.includes("id: 'user:alice'"), false)
+  })
+
+  it('should include conflict fields in WHERE clause with inline values', () => {
     const result = buildUpsertQuery(
       'users',
       [{ email: 'a@b.com', name: 'Alice' }],
       ['email'],
     )
-    assertStringIncludes(result, 'WHERE email = $item.email')
+    // The query is a single self-contained statement (no $item.* param refs)
+    // so it can be embedded inside a buffered transaction whose execute() does
+    // not bind params.
+    assertStringIncludes(result, "WHERE email = 'a@b.com'")
   })
 
   it('should combine multiple conflict fields with AND', () => {
@@ -39,7 +53,7 @@ describe('buildUpsertQuery', () => {
       [{ email: 'a@b.com', name: 'Alice' }],
       ['email', 'name'],
     )
-    assertStringIncludes(result, 'email = $item.email AND name = $item.name')
+    assertStringIncludes(result, "email = 'a@b.com' AND name = 'Alice'")
   })
 
   it('should reject invalid table names', () => {

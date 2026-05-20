@@ -102,17 +102,46 @@ export function sanitizeErrorMessage(message: string, includeDetails: boolean): 
 }
 
 /**
- * Convert a SurrealDB RecordId to a string
+ * Strip SurrealDB v3 wire-format angle brackets from a record-id-shaped string.
  *
- * @param recordId - The RecordId to convert
- * @returns - The string representation of the RecordId
+ * SurrealDB v3 wraps record-id keys that contain special characters in unicode
+ * angle brackets — `'outlet:⟨alaskabeacon.com⟩'`, `'plan_chunk:⟨demo-plan-ff3d5981⟩'`.
+ * Downstream callers that want the bare `table:id` shape (API responses, log
+ * lines, string-keyed lookups) previously had to call
+ * `value.replace('⟨', '').replace('⟩', '')` themselves at every boundary. This
+ * helper centralises that strip.
+ *
+ * Both forms are accepted on input: the v3 unicode brackets (`⟨…⟩`, U+27E8 /
+ * U+27E9) and the legacy ASCII brackets (`<…>`). `null` and `undefined` are
+ * passed through untouched so the helper is safe to apply unconditionally.
+ *
+ * @example
+ * stripBrackets('outlet:⟨alaska.com⟩')        // 'outlet:alaska.com'
+ * stripBrackets('plan_chunk:⟨demo-plan-ff3d5981⟩')  // 'plan_chunk:demo-plan-ff3d5981'
+ * stripBrackets('user:alice')                  // 'user:alice'   (untouched)
+ * stripBrackets('outlet:<legacy.com>')         // 'outlet:legacy.com'  (ASCII form)
+ * stripBrackets(null)                          // null
+ */
+export function stripBrackets<T extends string | null | undefined>(value: T): T {
+  if (value === null || value === undefined) return value
+  // Unicode brackets first (the v3 norm), then ASCII as a fallback. Both forms
+  // are stripped because some clients still emit the legacy ASCII shape.
+  return value.replace(/[⟨⟩<>]/g, '') as T
+}
+
+/**
+ * Convert a SurrealDB RecordId to a bare `table:id` string.
+ *
+ * Strings are returned as-is; RecordId instances are stringified through the
+ * SDK's `toString()` and then run through {@link stripBrackets} so the result
+ * is the bare wire form without v3's escape brackets.
+ *
+ * @param recordId - The RecordId or string to convert
+ * @returns The string representation with brackets stripped
  */
 export function recordIdToString(recordId: RecordId | string): string {
   if (typeof recordId === 'string') return recordId
-
-  const result = recordId.toString()
-  // Strip angle brackets ⟨⟩ from SurrealDB RecordId format for backward compatibility
-  return result.replace(/⟨(.+?)⟩/g, '$1')
+  return stripBrackets(recordId.toString())
 }
 
 /**

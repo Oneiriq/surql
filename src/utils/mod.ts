@@ -1,7 +1,14 @@
 /**
  * SurQL module exports
  */
-export { createSerializer, normalizeSurrealRecord, recordIdToString, type Serialized } from './helpers.ts'
+export {
+  createSerializer,
+  normalizeSurrealRecord,
+  normalizeSurrealRecords,
+  recordIdToString,
+  type Serialized,
+  stripBrackets,
+} from './helpers.ts'
 
 export { intoSurQlError, SurQlError, type SurQlErrorJson } from './surrealError.ts'
 

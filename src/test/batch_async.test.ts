@@ -63,11 +63,13 @@ describe('upsertMany', () => {
     assertEquals(result.length, 0)
   })
 
-  it('should execute one UPSERT per item', async () => {
-    const mockResp = [
-      [[{ id: 'users:1', name: 'Alice' }]],
-      [[{ id: 'users:2', name: 'Bob' }]],
-    ]
+  it('should batch into a single multi-statement query (one UPSERT per item)', async () => {
+    // Per-statement result envelopes returned by the SDK; concatenated into a
+    // single results array by upsertMany in autocommit mode.
+    const mockResp = [[
+      [{ id: 'users:1', name: 'Alice' }],
+      [{ id: 'users:2', name: 'Bob' }],
+    ]]
     // deno-lint-ignore no-explicit-any
     const db = makeMockDb(mockResp) as any
     const result = await upsertMany(db, 'users', [
@@ -75,9 +77,35 @@ describe('upsertMany', () => {
       { name: 'Bob' },
     ])
     assertEquals(result.length, 2)
-    assertEquals(db.queries.length, 2)
-    assertEquals(db.queries[0].includes('UPSERT users SET'), true)
-    assertEquals(db.queries[1].includes('UPSERT users SET'), true)
+    // One multi-statement query is emitted — autocommit mode batches the
+    // per-record UPSERTs together.
+    assertEquals(db.queries.length, 1)
+    assertEquals(db.queries[0].split('UPSERT users CONTENT').length - 1, 2)
+    assertEquals(db.queries[0].includes("name: 'Alice'"), true)
+    assertEquals(db.queries[0].includes("name: 'Bob'"), true)
+  })
+
+  it('should target a specific record id when `id` is present in the item', async () => {
+    const mockResp = [[[{ id: 'users:alice', name: 'Alice' }]]]
+    // deno-lint-ignore no-explicit-any
+    const db = makeMockDb(mockResp) as any
+    await upsertMany(db, 'users', [{ id: 'users:alice', name: 'Alice' }])
+    assertEquals(db.queries[0].includes('UPSERT users:alice CONTENT'), true)
+    // `id` is the target, not part of the payload.
+    assertEquals(db.queries[0].includes("id: 'users:alice'"), false)
+  })
+
+  it('should emit a WHERE clause from conflictFields with inline values', async () => {
+    const mockResp = [[[{ id: 'users:1', email: 'a@b.com' }]]]
+    // deno-lint-ignore no-explicit-any
+    const db = makeMockDb(mockResp) as any
+    await upsertMany(
+      db,
+      'users',
+      [{ email: 'a@b.com', name: 'Alice' }],
+      ['email'],
+    )
+    assertEquals(db.queries[0].includes("WHERE email = 'a@b.com'"), true)
   })
 
   it('should wrap db errors', async () => {

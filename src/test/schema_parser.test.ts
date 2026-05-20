@@ -501,6 +501,12 @@ describe('parseEdgeInfo', () => {
     assertThrows(() => parseEdgeInfo('', {}), SchemaParseError)
   })
 
+  it('rejects non-object info', () => {
+    assertThrows(() => parseEdgeInfo('likes', null), SchemaParseError)
+    assertThrows(() => parseEdgeInfo('likes', 'not an object'), SchemaParseError)
+    assertThrows(() => parseEdgeInfo('likes', [1, 2, 3]), SchemaParseError)
+  })
+
   it('extracts from/to + fields from relation', () => {
     const info = {
       tb: 'DEFINE TABLE likes TYPE RELATION FROM user TO product',
@@ -512,6 +518,164 @@ describe('parseEdgeInfo', () => {
     assertEquals(e.toTable, 'product')
     assertEquals(e.fields.length, 1)
     assertEquals(e.fields[0].name, 'weight')
+  })
+
+  it('uses defineTable override when supplied (v3 INFO FOR TABLE omits the table-level DEFINE)', () => {
+    // v3's INFO FOR TABLE does not include the table-level DEFINE — the
+    // DEFINE TABLE string only appears in INFO FOR DB.tables.<name>. A drift
+    // detector must pass that string explicitly so mode + FROM/TO + PERMISSIONS
+    // round-trip; without it the edge defaults to SCHEMALESS with no endpoints.
+    const e = parseEdgeInfo('likes', { fields: {} }, 'DEFINE TABLE likes TYPE RELATION FROM user TO product')
+    assertEquals(e.mode, EdgeMode.RELATION)
+    assertEquals(e.fromTable, 'user')
+    assertEquals(e.toTable, 'product')
+  })
+
+  it('detects SCHEMAFULL edge mode', () => {
+    const e = parseEdgeInfo('likes', { fields: {} }, 'DEFINE TABLE likes SCHEMAFULL')
+    assertEquals(e.mode, EdgeMode.SCHEMAFULL)
+    assertEquals(e.fromTable, undefined)
+    assertEquals(e.toTable, undefined)
+  })
+
+  it('detects SCHEMALESS edge mode when DEFINE TABLE has no mode keyword', () => {
+    const e = parseEdgeInfo('likes', { fields: {} }, 'DEFINE TABLE likes')
+    assertEquals(e.mode, EdgeMode.SCHEMALESS)
+  })
+
+  it('defaults to SCHEMALESS when no DEFINE TABLE is available', () => {
+    const e = parseEdgeInfo('likes', { fields: {} })
+    assertEquals(e.mode, EdgeMode.SCHEMALESS)
+  })
+
+  it('lets `TYPE RELATION` win when the edge is also marked SCHEMAFULL', () => {
+    // SurrealDB v3 accepts `DEFINE TABLE <e> TYPE RELATION SCHEMAFULL FROM x TO y`
+    // — the edge mode is RELATION regardless of the schema flag.
+    const e = parseEdgeInfo(
+      'likes',
+      { fields: {} },
+      'DEFINE TABLE likes TYPE RELATION SCHEMAFULL FROM user TO product',
+    )
+    assertEquals(e.mode, EdgeMode.RELATION)
+    assertEquals(e.fromTable, 'user')
+    assertEquals(e.toTable, 'product')
+  })
+
+  it('strips auto-emitted `in` and `out` fields on RELATION edges', () => {
+    // SurrealDB auto-emits `in` and `out` on a TYPE RELATION edge; the
+    // code-side EdgeDefinition doesn't declare them, so round-trip diffs
+    // would flag them as orphan additions if the parser kept them.
+    const info = {
+      tb: 'DEFINE TABLE likes TYPE RELATION FROM user TO product',
+      fields: {
+        in: 'DEFINE FIELD in ON likes TYPE record<user>',
+        out: 'DEFINE FIELD out ON likes TYPE record<product>',
+        weight: 'DEFINE FIELD weight ON likes TYPE float',
+      },
+    }
+    const e = parseEdgeInfo('likes', info)
+    assertEquals(e.mode, EdgeMode.RELATION)
+    assertEquals(e.fields.map((f) => f.name), ['weight'])
+  })
+
+  it('keeps `in` and `out` fields on non-RELATION edges (no auto-emission)', () => {
+    // On a non-RELATION edge there's no auto-emission; if a consumer
+    // explicitly declares `in` / `out` fields they should still round-trip.
+    const info = {
+      tb: 'DEFINE TABLE custom SCHEMAFULL',
+      fields: {
+        in: 'DEFINE FIELD in ON custom TYPE record<a>',
+        out: 'DEFINE FIELD out ON custom TYPE record<b>',
+      },
+    }
+    const e = parseEdgeInfo('custom', info)
+    assertEquals(e.mode, EdgeMode.SCHEMAFULL)
+    assertEquals(e.fields.map((f) => f.name).sort(), ['in', 'out'])
+  })
+
+  it('parses per-action PERMISSIONS from the table-level DEFINE', () => {
+    const define = 'DEFINE TABLE likes TYPE RELATION FROM user TO product ' +
+      'PERMISSIONS FOR select WHERE $auth.id != NONE FOR create WHERE $auth.id = in'
+    const e = parseEdgeInfo('likes', { fields: {} }, define)
+    assertEquals(e.permissions?.select, '$auth.id != NONE')
+    assertEquals(e.permissions?.create, '$auth.id = in')
+  })
+
+  it('parses the comma-joined PERMISSIONS shape v3 emits when actions share a rule', () => {
+    // v3 collapses `FOR select WHERE r FOR create WHERE r ...` to
+    // `FOR select, create, update, delete WHERE r`. The parser must explode
+    // that into the same per-action dict shape, otherwise every consumer with
+    // collapsed rules sees a false-positive MODIFY_PERMISSIONS drift.
+    const define = 'DEFINE TABLE likes TYPE RELATION FROM user TO product ' +
+      'PERMISSIONS FOR select, create, update, delete WHERE tenant = $auth.tenant'
+    const e = parseEdgeInfo('likes', { fields: {} }, define)
+    assertEquals(e.permissions?.select, 'tenant = $auth.tenant')
+    assertEquals(e.permissions?.create, 'tenant = $auth.tenant')
+    assertEquals(e.permissions?.update, 'tenant = $auth.tenant')
+    assertEquals(e.permissions?.delete, 'tenant = $auth.tenant')
+  })
+
+  it('parses indexes and events on edges', () => {
+    const info = {
+      tb: 'DEFINE TABLE likes TYPE RELATION FROM user TO product',
+      fields: {},
+      indexes: {
+        unique_pair: 'DEFINE INDEX unique_pair ON likes COLUMNS in, out UNIQUE',
+      },
+      events: {
+        notify_create: 'DEFINE EVENT notify_create ON likes WHEN $event = "CREATE" THEN { /* ... */ }',
+      },
+    }
+    const e = parseEdgeInfo('likes', info)
+    assertEquals(e.indexes.length, 1)
+    assertEquals(e.indexes[0].fields, ['in', 'out'])
+    assertEquals(e.indexes[0].type, IndexType.UNIQUE)
+    assertEquals(e.events.length, 1)
+    assertEquals(e.events[0].name, 'notify_create')
+  })
+
+  it('round-trips a nullable record-typed declared field on a SCHEMAFULL edge', () => {
+    // Non-RELATION edges can declare arbitrary fields. Make sure record<X> +
+    // option<record<X>> survive the parser.
+    const info = {
+      tb: 'DEFINE TABLE custom SCHEMAFULL',
+      fields: {
+        target: 'DEFINE FIELD target ON custom TYPE record<thing>',
+        owner: 'DEFINE FIELD owner ON custom TYPE option<record<user>>',
+      },
+    }
+    const e = parseEdgeInfo('custom', info)
+    const target = e.fields.find((f) => f.name === 'target')!
+    assertEquals(target.type, FieldType.RECORD)
+    assertEquals(target.recordLink, 'thing')
+    const owner = e.fields.find((f) => f.name === 'owner')!
+    assertEquals(owner.type, FieldType.RECORD)
+    assertEquals(owner.recordLink, 'user')
+    assertEquals(owner.optional, true)
+  })
+
+  it('handles a field whose name collides with a clause keyword (e.g. `default`)', () => {
+    // Regression: the field-name-vs-clause-keyword split must work on edges
+    // too — splitFieldClauses skips the `DEFINE FIELD <name> ON …` prefix
+    // before scanning for clause-keyword anchors.
+    const info = {
+      tb: 'DEFINE TABLE custom SCHEMAFULL',
+      fields: { default: 'DEFINE FIELD default ON custom TYPE bool DEFAULT false' },
+    }
+    const e = parseEdgeInfo('custom', info)
+    assertEquals(e.fields.length, 1)
+    assertEquals(e.fields[0].name, 'default')
+    assertEquals(e.fields[0].type, FieldType.BOOL)
+    assertEquals(e.fields[0].defaultValue, 'false')
+  })
+
+  it('returns endpoints as undefined when DEFINE TABLE lacks FROM/TO', () => {
+    // Permissive on read: a malformed live definition surfaces as missing
+    // endpoints, not a parse failure.
+    const e = parseEdgeInfo('likes', { fields: {} }, 'DEFINE TABLE likes TYPE RELATION')
+    assertEquals(e.mode, EdgeMode.RELATION)
+    assertEquals(e.fromTable, undefined)
+    assertEquals(e.toTable, undefined)
   })
 })
 
