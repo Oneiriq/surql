@@ -8,6 +8,21 @@ export {
   type RecordAccessConfig,
 } from './access.ts'
 export {
+  analyzer,
+  type AnalyzerDefinition,
+  analyzerToSurql,
+  edgeNgram,
+  ngram,
+  snowball,
+  standardAnalyzer,
+  TokenFilter,
+  type TokenFilterValue,
+  Tokenizer,
+  validateAnalyzer,
+  withFilters,
+  withTokenizer,
+} from './analyzer.ts'
+export {
   bidirectionalEdge,
   type EdgeDefinition,
   EdgeMode,
@@ -64,8 +79,9 @@ export {
   registerTable,
   SchemaRegistry,
 } from './registry.ts'
-export { generateAccessSql, generateEdgeSql, generateSchemaSql, generateTableSql } from './sql.ts'
+export { generateAccessSql, generateAnalyzerSql, generateEdgeSql, generateSchemaSql, generateTableSql } from './sql.ts'
 export {
+  bm25Index,
   event,
   type EventDefinition,
   HnswDistanceType,

@@ -21,6 +21,7 @@ import { AccessType } from '../schema/access.ts'
 import { EdgeMode } from '../schema/edge.ts'
 import { FieldType } from '../schema/fields.ts'
 import {
+  bm25Index,
   HnswDistanceType,
   hnswIndex,
   IndexType,
@@ -209,13 +210,27 @@ describe('parseIndex', () => {
     assertEquals(i.fields, ['a', 'b', 'c'])
   })
 
-  it('parses SEARCH index', () => {
+  it('parses legacy SEARCH index', () => {
     const i = parseIndex(
       'content_search',
       'DEFINE INDEX content_search ON TABLE post COLUMNS title, content SEARCH ANALYZER ascii',
     )!
     assertEquals(i.type, IndexType.SEARCH)
     assertEquals(i.fields.length, 2)
+    // `ascii` is the historical default — it normalises back to undefined.
+    assertEquals(i.searchAnalyzer, undefined)
+  })
+
+  it('parses FULLTEXT index with analyzer, BM25, and HIGHLIGHTS', () => {
+    const i = parseIndex(
+      'content_bm25',
+      'DEFINE INDEX content_bm25 ON TABLE memory FIELDS content FULLTEXT ANALYZER text_en BM25 HIGHLIGHTS',
+    )!
+    assertEquals(i.type, IndexType.SEARCH)
+    assertEquals(i.fields, ['content'])
+    assertEquals(i.searchAnalyzer, 'text_en')
+    assertEquals(i.bm25, true)
+    assertEquals(i.highlights, true)
   })
 
   it('parses MTREE with dimension, distance, vector type', () => {
@@ -771,6 +786,22 @@ describe('round-trip: generate → parse → regenerate', () => {
     const parsedIx = parsed.indexes[0]
     assertEquals(parsedIx.type, IndexType.SEARCH)
     assertEquals(parsedIx.fields.length, 2)
+  })
+
+  it('round-trips a bm25Index through generate + parse', () => {
+    const table = withIndexes(
+      tableSchema('memory', TableMode.SCHEMAFULL),
+      bm25Index('content_bm25', ['content'], 'text_en'),
+    )
+    const [tb, ix] = generateTableSql(table).split('\n').map((s) => s.replace(/;$/, ''))
+    // The emitter now writes the v3 FULLTEXT keyword.
+    assert(ix.includes('FULLTEXT ANALYZER text_en BM25'))
+    const parsed = parseTableInfo('memory', { tb, ix: { content_bm25: ix } })
+    const parsedIx = parsed.indexes[0]
+    assertEquals(parsedIx.type, IndexType.SEARCH)
+    assertEquals(parsedIx.fields, ['content'])
+    assertEquals(parsedIx.searchAnalyzer, 'text_en')
+    assertEquals(parsedIx.bm25, true)
   })
 })
 

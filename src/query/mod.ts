@@ -1,6 +1,7 @@
 export { buildRelateQuery, buildUpsertQuery, deleteMany, insertMany, relateMany, upsertMany } from './batch.ts'
 export {
   deleteQuery,
+  fulltextSearchQuery,
   insert,
   Query,
   type QueryOperation,

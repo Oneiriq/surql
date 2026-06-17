@@ -123,7 +123,9 @@ function buildIndexSql(tableName: string, idx: IndexDefinition): string {
       sql += ' UNIQUE'
       break
     case IndexType.SEARCH:
-      if (idx.searchAnalyzer) sql += ` SEARCH ANALYZER ${idx.searchAnalyzer}`
+      sql += ` FULLTEXT ANALYZER ${idx.searchAnalyzer ?? 'ascii'}`
+      if (idx.bm25) sql += ' BM25'
+      if (idx.highlights) sql += ' HIGHLIGHTS'
       break
     case IndexType.MTREE:
       sql += ` MTREE DIMENSION ${idx.mtreeDimension}`

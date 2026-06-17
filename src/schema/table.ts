@@ -62,7 +62,22 @@ export interface IndexDefinition {
   readonly name: string
   readonly fields: readonly string[]
   readonly type: IndexType
+  /**
+   * Full-text index analyzer name. Only meaningful for {@link IndexType.SEARCH}
+   * indexes; when unset the index renders the historical `ascii` analyzer.
+   */
   readonly searchAnalyzer?: string
+  /**
+   * Whether a full-text index emits the `BM25` relevance-scoring clause —
+   * required for `search::score` to return a value. Uses the engine's default
+   * `(k1, b)` parameters.
+   */
+  readonly bm25?: boolean
+  /**
+   * Whether a full-text index stores positional `HIGHLIGHTS` data (enables
+   * `search::highlight` / `search::offsets`).
+   */
+  readonly highlights?: boolean
   readonly mtreeDistance?: MTreeDistanceType
   readonly mtreeDimension?: number
   readonly mtreeVectorType?: MTreeVectorType
@@ -155,9 +170,48 @@ export function uniqueIndex(name: string, ...fields: string[]): IndexDefinition 
   return Object.freeze({ name, fields, type: IndexType.UNIQUE })
 }
 
-/** Create a search index */
-export function searchIndex(name: string, fields: string[], analyzer: string): IndexDefinition {
-  return Object.freeze({ name, fields, type: IndexType.SEARCH, searchAnalyzer: analyzer })
+/**
+ * Create a full-text search index.
+ *
+ * With no analyzer set the index renders the historical `ascii` default; pass
+ * `analyzer` (e.g. one defined via `analyzer(...)`) and the `bm25` / `highlights`
+ * options for a scorable index, or use {@link bm25Index} for the common
+ * BM25-scored shape.
+ */
+export function searchIndex(
+  name: string,
+  fields: string[],
+  analyzer?: string,
+  options: { bm25?: boolean; highlights?: boolean } = {},
+): IndexDefinition {
+  const def: {
+    name: string
+    fields: string[]
+    type: IndexType
+    searchAnalyzer?: string
+    bm25?: boolean
+    highlights?: boolean
+  } = { name, fields, type: IndexType.SEARCH }
+  if (analyzer !== undefined) def.searchAnalyzer = analyzer
+  if (options.bm25) def.bm25 = true
+  if (options.highlights) def.highlights = true
+  return Object.freeze(def)
+}
+
+/**
+ * Create a BM25-scored full-text search index over `fields`, analyzed by
+ * `analyzer`. This is the index to pair with `Query.fulltextSearch` and
+ * `Query.searchScore` for lexical recall — BM25 is what makes `search::score`
+ * return a relevance value.
+ *
+ * @example
+ * ```ts
+ * bm25Index('content_bm25', ['content'], 'text_en')
+ * // emits: DEFINE INDEX content_bm25 ON TABLE <t> FIELDS content FULLTEXT ANALYZER text_en BM25;
+ * ```
+ */
+export function bm25Index(name: string, fields: string[], analyzer: string): IndexDefinition {
+  return searchIndex(name, fields, analyzer, { bm25: true })
 }
 
 /** Create an MTREE vector index */

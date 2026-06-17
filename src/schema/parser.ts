@@ -112,8 +112,9 @@ const TYPE_WORD_RE = /^([A-Za-z_][A-Za-z0-9_]*)/
  */
 const ARRAY_SUBFIELD_RE = /(?:\[\*\]|\.\*)\s*$/
 
-const COLUMNS_RE = /COLUMNS\s+([^;]+?)(?:UNIQUE|SEARCH|HNSW|MTREE|\s*;|\s*$)/i
-const FIELDS_RE = /FIELDS\s+([^;]+?)(?:UNIQUE|SEARCH|HNSW|MTREE|\s*;|\s*$)/i
+const COLUMNS_RE = /COLUMNS\s+([^;]+?)(?:UNIQUE|FULLTEXT|SEARCH|HNSW|MTREE|\s*;|\s*$)/i
+const FIELDS_RE = /FIELDS\s+([^;]+?)(?:UNIQUE|FULLTEXT|SEARCH|HNSW|MTREE|\s*;|\s*$)/i
+const ANALYZER_RE = /ANALYZER\s+(\w+)/i
 const DIMENSION_RE = /DIMENSION\s+(\d+)/i
 const DISTANCE_RE = /(?:DIST|DISTANCE)\s+(\w+)/i
 const EFC_RE = /EFC\s+(\d+)/i
@@ -423,10 +424,25 @@ function extractIndexFields(definition: string): string[] {
 function extractIndexType(definition: string): IndexType {
   const upper = definition.toUpperCase()
   if (upper.includes('UNIQUE')) return IndexType.UNIQUE
-  if (upper.includes('SEARCH')) return IndexType.SEARCH
+  // SurrealDB 3.x renamed the full-text keyword `SEARCH` → `FULLTEXT`; accept
+  // both spellings so live definitions from either server version round-trip.
+  if (upper.includes('FULLTEXT') || upper.includes('SEARCH')) return IndexType.SEARCH
   if (upper.includes('HNSW')) return IndexType.HNSW
   if (upper.includes('MTREE')) return IndexType.MTREE
   return IndexType.STANDARD
+}
+
+/**
+ * Extract the full-text `ANALYZER <name>`. The historical `ascii` default (what
+ * a plain `searchIndex` renders) normalises back to `undefined`, so a round-trip
+ * of the default form is an identity, leaving an explicit non-`ascii` analyzer
+ * as a populated string.
+ */
+function extractAnalyzer(definition: string): string | undefined {
+  const m = ANALYZER_RE.exec(definition)
+  if (!m) return undefined
+  const name = m[1]
+  return name.toLowerCase() === 'ascii' ? undefined : name
 }
 
 function extractDimension(definition: string): number | undefined {
@@ -532,7 +548,13 @@ export function parseIndex(name: string, definition: string): IndexDefinition | 
     type,
   }
 
-  if (type === IndexType.MTREE) {
+  if (type === IndexType.SEARCH) {
+    const analyzer = extractAnalyzer(definition)
+    if (analyzer !== undefined) base.searchAnalyzer = analyzer
+    const upper = definition.toUpperCase()
+    if (upper.includes('BM25')) base.bm25 = true
+    if (upper.includes('HIGHLIGHTS')) base.highlights = true
+  } else if (type === IndexType.MTREE) {
     const dim = extractDimension(definition)
     if (dim !== undefined) base.mtreeDimension = dim
     const dist = extractMtreeDistance(definition)
