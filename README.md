@@ -10,7 +10,8 @@ Code-first database toolkit for [SurrealDB](https://surrealdb.com/). Type-safe q
 
 - **Fluent Query Builder** — Chainable API for SELECT/INSERT/UPDATE/DELETE with full generics; `typeRecord`, `timeNow`, `mathSum`, `countIf`, `stringLower` and friends render inline in both expression and `SET` contexts.
 - **Code-first Schema + Migrations** — `DEFINE` emitters with `IF NOT EXISTS`, structured schema parser, migration runner, squash, rollback, and drift detection.
-- **SurrealDB v3 correctness** — Buffered `BEGIN ... COMMIT`, unrolled `GraphQuery` depth, v3-valid `type::record()` everywhere.
+- **Hybrid search** — MTREE/HNSW vector indexes plus full-text **BM25** (`analyzer`, `bm25Index`, `fulltextSearch`/`searchScore`) for the sparse + dense legs of retrieval; fuse the two by rank (RRF).
+- **SurrealDB v3 correctness** — Buffered `BEGIN ... COMMIT`, unrolled `GraphQuery` depth, v3-valid `type::record()` and `FULLTEXT` indexes everywhere.
 - **`surql` CLI** — `migrate`, `schema`, `db`, `orchestrate`, `settings` subcommands (built on `@cliffy/command`).
 - **Multi-runtime** — JSR for Deno, npm for Node.js 18+.
 - **Layered settings** — env + `.env` + `surql.yaml` + `surql.toml` via `loadSettings()`.

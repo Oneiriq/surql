@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.6.0] - 2026-06-17
+
+### Added
+
+- **Full-text search (BM25) is now first-class — the sparse leg of hybrid retrieval.** Define a `DEFINE ANALYZER` in code with `analyzer(name)` / `standardAnalyzer(name)` (`AnalyzerDefinition` + `Tokenizer` + `TokenFilter`, composed with `withTokenizer` / `withFilters` and the `edgeNgram` / `ngram` / `snowball` filter factories, rendered via `analyzerToSurql` / `generateAnalyzerSql`); build a BM25-scored full-text index with `bm25Index(name, fields, analyzer)` (or `searchIndex(name, fields, analyzer, { bm25, highlights })`); and run the lexical query with `Query.fulltextSearch(field, reference, query)` + `Query.searchScore(reference, alias)`, or the `fulltextSearchQuery(...)` helper. `generateSchemaSql` accepts an `analyzers` array and emits `DEFINE ANALYZER` statements ahead of the tables that reference them. Pair it with `vectorSearch` and fuse the two result orders by rank (Reciprocal Rank Fusion). See `docs/v3-patterns.md`.
+
+### Fixed
+
+- **Full-text index now emits the SurrealDB 3.x `FULLTEXT` keyword.** The full-text index keyword was renamed from `SEARCH` to `FULLTEXT` in SurrealDB 3.0, so the previous output (`... SEARCH ANALYZER ascii`) was a parse error on v3. `IndexType.SEARCH` / `searchIndex` / `generateTableSql` / `generateEdgeSql` and the migration differ (`buildIndexSql`) now emit `FULLTEXT ANALYZER <analyzer|ascii> [BM25] [HIGHLIGHTS]`, and the `INFO FOR TABLE` index parser recognises both spellings (normalising the historical `ascii` analyzer back to undefined so default-form indexes round-trip). See `docs/v3-patterns.md` §"Full-text index renamed `SEARCH` → `FULLTEXT`" — including the note that the v3 streaming executor's full-text scan returns rows in BM25 relevance order but `search::score` is not plumbed through it (returns 0), so rank by the scan's natural order for RRF.
+
+### Verified
+
+- `deno fmt --check` — clean (on the canonical LF checkout / CI).
+- `deno lint` — clean (169 files).
+- `deno check mod.ts` / `deno check src/cli/main.ts src/cli/mod.ts` — clean.
+- `deno task test --ignore='src/test/integration*.test.ts'` — **206 passed (1782 steps)**, +8 tests / +32 steps over the 1.5.0 baseline of 198 passed (1750 steps), covering the analyzer builder, FULLTEXT/BM25 index rendering, the full-text query builder + single-quote escaping, and the parser round-trip. The one failing test (`CLI: db ping / schema tables` against a live database) is a pre-existing, environment-dependent failure unrelated to this change.
+
+### Housekeeping
+
+- Version bumped to `1.6.0` in `deno.json` (the npm package version is sourced from `deno.json` at `deno task build:npm` time, so the two stay in sync).
+
+---
+
 ## [1.5.0] - 2026-05-19
 
 ### Added

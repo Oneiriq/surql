@@ -96,6 +96,61 @@ typeThing('task', '123').toSurQL()  // → type::record('task:123') (same output
 
 See [Query UX](query-ux.md) for the CRUD overloads that accept these refs directly.
 
+## Full-text index renamed `SEARCH` → `FULLTEXT`
+
+SurrealDB v3 renamed the full-text index keyword. The v1/v2 form:
+
+```text
+DEFINE INDEX idx ON TABLE t FIELDS content SEARCH ANALYZER ascii BM25;  -- parse error on v3
+```
+
+is rejected (`Unexpected token, expected Eof` at `SEARCH`). v3 spells it `FULLTEXT`:
+
+```text
+DEFINE INDEX idx ON TABLE t FIELDS content FULLTEXT ANALYZER ascii BM25 HIGHLIGHTS;
+```
+
+surql emits the `FULLTEXT` keyword from `IndexType.SEARCH` / `searchIndex` / `bm25Index` (and the migration differ). The structured parser recognises **both** spellings on read, so a live definition from either server version round-trips. `COLUMNS` and `FIELDS` are interchangeable in this statement; surql emits `FIELDS`.
+
+The analyzer is defined separately with `generateAnalyzerSql` / `analyzer(...)` (`DEFINE ANALYZER ...`), which must run **before** the index that references it — `generateSchemaSql({ analyzers, tables })` emits analyzer statements ahead of tables for exactly this reason. Bare `BM25` uses the engine defaults (`k1 = 1.2`, `b = 0.75`); a full-text index with no analyzer set renders the historical `ascii` default, so define and name one explicitly for real lexical recall.
+
+```typescript
+import {
+  analyzer,
+  bm25Index,
+  generateSchemaSql,
+  standardAnalyzer,
+  TokenFilter,
+  tableSchema,
+  withFilters,
+  withIndexes,
+} from 'jsr:@oneiriq/surql'
+
+// class tokenizer + lowercase + ascii, plus English stemming.
+const textEn = withFilters(standardAnalyzer('text_en'), 'snowball(english)')
+
+const memory = withIndexes(tableSchema('memory'), bm25Index('content_bm25', ['content'], 'text_en'))
+
+generateSchemaSql({ analyzers: [textEn], tables: [memory] })
+// → DEFINE ANALYZER text_en TOKENIZERS class FILTERS lowercase,ascii,snowball(english);
+//
+//   DEFINE TABLE memory SCHEMAFULL;
+//   DEFINE INDEX content_bm25 ON TABLE memory FIELDS content FULLTEXT ANALYZER text_en BM25;
+```
+
+### `search::score` and scan ordering
+
+Run the lexical query with `Query.fulltextSearch(field, reference, query)` + `Query.searchScore(reference, alias)`, or the `fulltextSearchQuery(...)` helper:
+
+```typescript
+import { fulltextSearchQuery } from 'jsr:@oneiriq/surql'
+
+const sparse = fulltextSearchQuery('memory', 'content', 1, 'insider buying').limit(100)
+// → SELECT *, search::score(1) AS score FROM memory WHERE content @1@ 'insider buying' LIMIT 100
+```
+
+The v3 streaming executor's full-text scan yields matching rows **already in BM25 relevance order**, but does not (in 3.0.x) plumb the per-row score through to `search::score(<ref>)`, which returns `0` there. So **rank by the scan's natural order** rather than `ORDER BY search::score(...)`. This is sufficient for Reciprocal Rank Fusion, which fuses *ranks*, not raw scores: take the order the rows come back in, fuse it with the dense (`vectorSearch`) order via RRF, and you have hybrid retrieval. The query text is inlined as a single-quoted, escaped literal (no bound parameters), so a `'` in the query is escaped, not a SurrealQL injection vector.
+
 ## CI pin
 
 Integration tests run against `surrealdb/surrealdb:v3.0.5` (see `.github/workflows/integration.yml`). The publish-time unit test jobs exclude `src/test/integration*.test.ts` so JSR/npm releases do not require a live container. To run the integration tests locally:

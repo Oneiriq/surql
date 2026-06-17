@@ -2,6 +2,8 @@ import type { FieldDefinition } from './fields.ts'
 import { FieldType } from './fields.ts'
 import type { AccessDefinition } from './access.ts'
 import { AccessType } from './access.ts'
+import type { AnalyzerDefinition } from './analyzer.ts'
+import { analyzerToSurql, validateAnalyzer } from './analyzer.ts'
 import type { EdgeDefinition } from './edge.ts'
 import type { EventDefinition, IndexDefinition, TableDefinition } from './table.ts'
 import { IndexType } from './table.ts'
@@ -83,7 +85,9 @@ function generateIndexSql(tableName: string, idx: IndexDefinition): string {
       sql += ' UNIQUE'
       break
     case IndexType.SEARCH:
-      if (idx.searchAnalyzer) sql += ` SEARCH ANALYZER ${idx.searchAnalyzer}`
+      sql += ` FULLTEXT ANALYZER ${idx.searchAnalyzer ?? 'ascii'}`
+      if (idx.bm25) sql += ' BM25'
+      if (idx.highlights) sql += ' HIGHLIGHTS'
       break
     case IndexType.MTREE:
       sql += ` MTREE DIMENSION ${idx.mtreeDimension}`
@@ -206,12 +210,31 @@ export function generateAccessSql(
 }
 
 /**
- * Generate all schema SQL from tables, edges, and access definitions.
+ * Generate SurrealQL DDL for a `DEFINE ANALYZER` definition.
  *
- * Pass `ifNotExists: true` to propagate `IF NOT EXISTS` to every emitted
- * `DEFINE TABLE` and `DEFINE ACCESS` statement.
+ * Validates the analyzer first (a definition with an empty name throws). Pass
+ * `ifNotExists: true` to emit `DEFINE ANALYZER IF NOT EXISTS ...` for idempotent
+ * re-application.
+ *
+ * An analyzer must be defined BEFORE any full-text index that references it, so
+ * `generateSchemaSql` emits analyzer statements ahead of tables.
+ */
+export function generateAnalyzerSql(analyzer: AnalyzerDefinition, options: { ifNotExists?: boolean } = {}): string {
+  validateAnalyzer(analyzer)
+  return analyzerToSurql(analyzer, options)
+}
+
+/**
+ * Generate all schema SQL from analyzers, tables, edges, and access
+ * definitions.
+ *
+ * Analyzers render first so a full-text index can reference an analyzer defined
+ * earlier in the same script. Pass `ifNotExists: true` to propagate
+ * `IF NOT EXISTS` to every emitted `DEFINE ANALYZER` / `DEFINE TABLE` /
+ * `DEFINE ACCESS` statement.
  */
 export function generateSchemaSql(options: {
+  analyzers?: AnalyzerDefinition[]
   tables?: TableDefinition[]
   edges?: EdgeDefinition[]
   access?: AccessDefinition[]
@@ -219,6 +242,12 @@ export function generateSchemaSql(options: {
 }): string {
   const parts: string[] = []
   const emitOpts = { ifNotExists: options.ifNotExists }
+
+  if (options.analyzers) {
+    for (const a of options.analyzers) {
+      parts.push(generateAnalyzerSql(a, emitOpts))
+    }
+  }
 
   if (options.tables) {
     for (const table of options.tables) {

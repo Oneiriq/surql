@@ -37,6 +37,9 @@ interface QueryState<T> {
   readonly vectorData: readonly number[] | null
   readonly vectorK: number | null
   readonly vectorDistance: VectorDistanceType | null
+  readonly fulltextField: string | null
+  readonly fulltextReference: number | null
+  readonly fulltextQuery: string | null
   readonly _phantom?: T
 }
 
@@ -62,6 +65,9 @@ function defaultState<T>(): QueryState<T> {
     vectorData: null,
     vectorK: null,
     vectorDistance: null,
+    fulltextField: null,
+    fulltextReference: null,
+    fulltextQuery: null,
   }
 }
 
@@ -190,6 +196,51 @@ export class Query<T = Record<string, unknown>> {
     })
   }
 
+  /**
+   * Configure a full-text `FULLTEXT` predicate rendered as
+   * `<field> @<reference>@ <query>` in the `WHERE` clause.
+   *
+   * The `reference` integer ties the match to a {@link searchScore} (or
+   * `search::highlight`) call, so a row's BM25 relevance can be projected and
+   * ordered on. Requires a BM25 full-text index on `field` (see `bm25Index`).
+   * The query text is inlined as a quoted, escaped literal.
+   *
+   * @example
+   * ```ts
+   * select().searchScore(1, 'score').fromTable('memory')
+   *   .fulltextSearch('content', 1, 'insider buying').orderBy('score', 'DESC').limit(10)
+   * // SELECT *, search::score(1) AS score FROM memory
+   * //   WHERE content @1@ 'insider buying' ORDER BY score DESC LIMIT 10
+   * ```
+   */
+  fulltextSearch(field: string, reference: number, query: string): Query<T> {
+    if (field.length === 0) {
+      throw new Error('Full-text search field cannot be empty')
+    }
+    if (query.length === 0) {
+      throw new Error('Full-text search query cannot be empty')
+    }
+    return this.with({
+      fulltextField: field,
+      fulltextReference: reference,
+      fulltextQuery: query,
+    })
+  }
+
+  /**
+   * Append `search::score(<reference>) AS <alias>` to the projected fields — the
+   * BM25 relevance for the match registered at `reference` by
+   * {@link fulltextSearch}. Order by `alias` to rank.
+   *
+   * When no projection has been set yet, the star is added first so the score
+   * column is appended to `SELECT *` (matching `select(None)` in the sibling
+   * ports) rather than replacing it.
+   */
+  searchScore(reference: number, alias: string): Query<T> {
+    const base = this.state.fields.length > 0 ? this.state.fields : ['*']
+    return this.with({ fields: [...base, `search::score(${reference}) AS ${alias}`] })
+  }
+
   /** Get the current operation */
   get operation(): QueryOperation {
     return this.state.operation
@@ -232,14 +283,26 @@ export class Query<T = Record<string, unknown>> {
       sql += this.state.table ? `.${this.state.traversalPath}` : ` ${this.state.traversalPath}`
     }
 
+    // Assemble WHERE parts in order: vector search, full-text match, then the
+    // accumulated raw conditions — all joined with AND.
+    const whereParts: string[] = []
     if (this.state.vectorField && this.state.vectorData) {
       const vecStr = `[${this.state.vectorData.join(', ')}]`
-      sql += ` WHERE ${this.state.vectorField} <|${this.state.vectorK ?? 10}|> ${vecStr}`
-      if (this.state.conditions.length > 0) {
-        sql += ` AND ${this.state.conditions.join(' AND ')}`
-      }
-    } else if (this.state.conditions.length > 0) {
-      sql += ` WHERE ${this.state.conditions.join(' AND ')}`
+      whereParts.push(`${this.state.vectorField} <|${this.state.vectorK ?? 10}|> ${vecStr}`)
+    }
+    if (
+      this.state.fulltextField !== null &&
+      this.state.fulltextReference !== null &&
+      this.state.fulltextQuery !== null
+    ) {
+      const quoted = quoteValue(this.state.fulltextQuery)
+      whereParts.push(`${this.state.fulltextField} @${this.state.fulltextReference}@ ${quoted}`)
+    }
+    for (const cond of this.state.conditions) {
+      whereParts.push(cond)
+    }
+    if (whereParts.length > 0) {
+      sql += ` WHERE ${whereParts.join(' AND ')}`
     }
 
     if (this.state.groupAll) {
@@ -397,4 +460,30 @@ export function similaritySearchQuery<T = Record<string, unknown>>(
   k: number = 10,
 ): Query<T> {
   return new Query<T>().select().fromTable(table).vectorSearch(field, vector, distance, k)
+}
+
+/**
+ * Create a full-text (BM25) search query — the lexical leg of hybrid retrieval.
+ *
+ * Wraps `Query.fulltextSearch` + `Query.searchScore` into
+ * `SELECT ..., search::score(reference) AS <scoreAlias> FROM <table>
+ * WHERE <field> @reference@ <query>`. Pair with a `bm25Index` on `field`, then
+ * `ORDER BY <scoreAlias> DESC` to rank by relevance.
+ */
+export function fulltextSearchQuery<T = Record<string, unknown>>(
+  table: string,
+  field: string,
+  reference: number,
+  query: string,
+  fields: string[] = [],
+  scoreAlias: string = 'score',
+): Query<T> {
+  // An empty projection becomes `*` (matching `select(None)` in the sibling
+  // ports) so the score column is appended after the star, not in place of it.
+  const projection = fields.length > 0 ? fields : ['*']
+  return new Query<T>()
+    .select(...projection)
+    .searchScore(reference, scoreAlias)
+    .fromTable(table)
+    .fulltextSearch(field, reference, query)
 }
