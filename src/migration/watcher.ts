@@ -94,7 +94,10 @@ export async function watchSchema(
   const onError = opts.onError ?? ((e: unknown) => console.error('watchSchema error:', e))
 
   let stopped = false
-  let debounceTimer: number | undefined
+  // `ReturnType<typeof setTimeout>` rather than `number`: portable across the
+  // Deno (`number`) and Node (`Timeout`) timer typings, so type-checking passes
+  // regardless of which lib the toolchain resolves.
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined
 
   const watcher = Deno.watchFs(schemaDir, { recursive: true })
 
