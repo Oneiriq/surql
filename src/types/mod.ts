@@ -3,6 +3,7 @@
  */
 
 export { coerceDatetime, coerceRecordDatetimes } from './coerce.ts'
+export { FileRef, type FileRefObject, fileRefToString, isFileRefLike, parseFileRef, toFileRef } from './file.ts'
 export {
   and_,
   type ComparisonOperator,

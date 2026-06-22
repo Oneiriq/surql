@@ -31,6 +31,7 @@ import type { Surreal } from 'surrealdb'
 import { intoSurQlError } from '../utils/surrealError.ts'
 import type { AccessDefinition, JwtConfig, RecordAccessConfig } from './access.ts'
 import { AccessType } from './access.ts'
+import type { BucketBackend, BucketDefinition } from './bucket.ts'
 import type { EdgeDefinition } from './edge.ts'
 import { EdgeMode } from './edge.ts'
 import type { FieldDefinition } from './fields.ts'
@@ -75,6 +76,7 @@ export interface DatabaseInfo {
   readonly tables: Readonly<Record<string, TableDefinition>>
   readonly edges: Readonly<Record<string, EdgeDefinition>>
   readonly accesses: Readonly<Record<string, AccessDefinition>>
+  readonly buckets: Readonly<Record<string, BucketDefinition>>
 }
 
 // ---------------------------------------------------------------------------
@@ -139,6 +141,12 @@ const TOKEN_RE = /FOR\s+TOKEN\s+(\w+)/i
 const ACCESS_TYPE_RE = /TYPE\s+(JWT|RECORD)/i
 /** A table-level `PERMISSIONS` clause body, up to a trailing `;` / end. */
 const TABLE_PERMISSIONS_RE = /\bPERMISSIONS\b([\s\S]*?)(?:\s*;\s*$|\s*$)/i
+/** `BACKEND "<url>"` (double- or single-quoted) of a `DEFINE BUCKET` statement. */
+const BUCKET_BACKEND_RE = /\bBACKEND\s+(?:"([^"]*)"|'([^']*)')/i
+/** `READONLY` keyword in a `DEFINE BUCKET` statement (word-boundary safe). */
+const BUCKET_READONLY_RE = /\bREADONLY\b/i
+/** `COMMENT "<text>"` (double- or single-quoted) of a `DEFINE BUCKET` statement. */
+const BUCKET_COMMENT_RE = /\bCOMMENT\s+(?:"([^"]*)"|'([^']*)')/i
 /** One `FOR <action-list> WHERE <rule>` permission clause. */
 const PERMISSION_CLAUSE_RE =
   /\bFOR\s+((?:select|create|update|delete)(?:\s*,\s*(?:select|create|update|delete))*)\s+WHERE\s+([\s\S]*?)(?=\s+FOR\s+(?:select|create|update|delete)\b|\s*;|\s*$)/gi
@@ -688,6 +696,46 @@ export function parseAccess(name: string, definition: string): AccessDefinition 
   return Object.freeze(acc)
 }
 
+/**
+ * Parse a single `DEFINE BUCKET <name> BACKEND "..." [READONLY] [PERMISSIONS
+ * ...] [COMMENT "..."]` statement into a {@link BucketDefinition}.
+ *
+ * This is the inverse of {@link generateBucketSql}: it recovers the backend
+ * URL, the read-only flag, table-style permissions, and the comment so a
+ * `diffBuckets(parsedFromDb, codeBuckets)` reports no spurious drift when the
+ * database and code definitions match.
+ *
+ * Returns `undefined` when no `BACKEND` clause is present (a bucket without a
+ * backend is not a valid definition we can round-trip).
+ */
+export function parseBucket(name: string, definition: string): BucketDefinition | undefined {
+  if (!definition || definition.trim().length === 0) return undefined
+
+  const backendMatch = BUCKET_BACKEND_RE.exec(definition)
+  if (!backendMatch) return undefined
+  const backend = (backendMatch[1] ?? backendMatch[2] ?? '') as BucketBackend
+
+  const bucket: Mutable<BucketDefinition> = {
+    name,
+    backend,
+    readonly: BUCKET_READONLY_RE.test(definition),
+  }
+
+  const commentMatch = BUCKET_COMMENT_RE.exec(definition)
+  const comment = commentMatch ? (commentMatch[1] ?? commentMatch[2]) : undefined
+  if (comment !== undefined) bucket.comment = comment
+
+  // Parse permissions from the definition with the trailing COMMENT clause
+  // removed: the table-permissions matcher reads a PERMISSIONS body to end of
+  // statement, so a following `COMMENT "..."` would otherwise be folded into
+  // the last permission rule.
+  const permsSource = commentMatch ? definition.slice(0, commentMatch.index) : definition
+  const permissions = parseTablePermissions(permsSource)
+  if (permissions !== undefined) bucket.permissions = permissions
+
+  return Object.freeze(bucket)
+}
+
 // ---------------------------------------------------------------------------
 // Table / DB glue
 // ---------------------------------------------------------------------------
@@ -923,6 +971,7 @@ export function parseDbInfo(info: unknown): DatabaseInfo {
   const tables: Record<string, TableDefinition> = {}
   const edges: Record<string, EdgeDefinition> = {}
   const accesses: Record<string, AccessDefinition> = {}
+  const buckets: Record<string, BucketDefinition> = {}
 
   const tb = pickMap(obj, ['tables', 'tb'])
   if (tb) {
@@ -966,10 +1015,22 @@ export function parseDbInfo(info: unknown): DatabaseInfo {
     }
   }
 
+  // Buckets are reported under `buckets` (long key) or `bu` (short key) in
+  // SurrealDB v3's INFO FOR DB response, each value a DEFINE BUCKET statement.
+  const bu = pickMap(obj, ['buckets', 'bu'])
+  if (bu) {
+    for (const [name, rawDef] of Object.entries(bu)) {
+      if (typeof rawDef !== 'string') continue
+      const parsed = parseBucket(name, rawDef)
+      if (parsed !== undefined) buckets[name] = parsed
+    }
+  }
+
   return Object.freeze({
     tables: Object.freeze(tables),
     edges: Object.freeze(edges),
     accesses: Object.freeze(accesses),
+    buckets: Object.freeze(buckets),
   })
 }
 

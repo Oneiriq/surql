@@ -8,6 +8,7 @@
  */
 
 import { Command, ValidationError } from '@cliffy/command'
+import { buildBucketCommand } from './bucket.ts'
 import { buildDbCommand } from './db.ts'
 import { buildMigrateCommand } from './migrate.ts'
 import { buildOrchestrateCommand } from './orchestrate.ts'
@@ -60,6 +61,7 @@ export function buildRootCommand(): AnyCommand {
 
   root.command('migrate', buildMigrateCommand(globals) as AnyCommand)
   root.command('schema', buildSchemaCommand(globals) as AnyCommand)
+  root.command('bucket', buildBucketCommand(globals) as AnyCommand)
   root.command('db', buildDbCommand(globals) as AnyCommand)
   root.command('orchestrate', buildOrchestrateCommand(globals) as AnyCommand)
   root.command('settings', settings)

@@ -14,6 +14,8 @@ export enum FieldType {
   ARRAY = 'array',
   RECORD = 'record',
   GEOMETRY = 'geometry',
+  FILE = 'file',
+  BYTES = 'bytes',
   ANY = 'any',
 }
 
@@ -119,6 +121,19 @@ export function arrayField(
 /** Object field */
 export function objectField(name: string, options: Partial<FieldDefinition> = {}): FieldDefinition {
   return createField(name, FieldType.OBJECT, options)
+}
+
+/**
+ * File field (SurrealDB v3 object storage). Stores a file reference value
+ * (`<bucket>:/<key>`) and emits `TYPE file`.
+ */
+export function fileField(name: string, options: Partial<FieldDefinition> = {}): FieldDefinition {
+  return createField(name, FieldType.FILE, options)
+}
+
+/** Bytes field — raw binary payload. Emits `TYPE bytes`. */
+export function bytesField(name: string, options: Partial<FieldDefinition> = {}): FieldDefinition {
+  return createField(name, FieldType.BYTES, options)
 }
 
 /** Computed / value field */

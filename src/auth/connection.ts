@@ -141,6 +141,15 @@ export class SurrealConnectionManager {
   }
 
   /**
+   * Whether the resolved connection endpoint uses a WebSocket transport
+   * (`ws://` / `wss://`). Multiple-session support requires a WebSocket
+   * connection; HTTP and embedded transports do not support it.
+   */
+  usesWebSocket(): boolean {
+    return this.endpoint.startsWith('ws://') || this.endpoint.startsWith('wss://')
+  }
+
+  /**
    * Get a connection to SurrealDB, creating one if necessary
    */
   async getConnection(): Promise<Surreal> {

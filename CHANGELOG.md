@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.7.0] - 2026-07-29
+
+### Added
+
+- **SurrealDB v3 object storage (buckets/files) is now first-class — code-first, end to end.** Define a bucket in code with `bucketSchema(name, backend)` / `memoryBucket(name)` / `fileBucket(name, path)` (an immutable `BucketDefinition`, rendered via the `DEFINE BUCKET` / `REMOVE BUCKET` / `ALTER BUCKET` emitters); declare `file` / `bytes` columns with `fileField(...)` / `bytesField(...)` (`TYPE file` / `TYPE bytes`); and let the migration differ manage buckets like tables (`diffBuckets` + `ADD_BUCKET` / `DROP_BUCKET` / `MODIFY_BUCKET` ops, wired into the generator's DOWN path, the registry, and snapshot versioning), with `parseBucket` reading live definitions back from `INFO FOR DB`. At runtime `client.bucket(name)` returns a `Bucket` handle with `put` / `putIfNotExists` / `get` / `getText` / `exists` / `head` / `delete` / `copy` / `copyIfNotExists` / `rename` / `renameIfNotExists` / `list` — every operation binds `type::file($bucket, $key)` parameters (bound vars, never string-interpolated). The CLI grows a `surql bucket` command (`define` / `list` / `rm` + `put` / `get` / `delete` / `exists` / `files`). Requires a server with the experimental files capability enabled — `SURREAL_CAPS_ALLOW_EXPERIMENTAL=files`; the capability is NOT covered by `--allow-all`, and prefer the env var over the `--allow-experimental files` flag, which swallows the trailing `memory` datastore positional.
+- **`FileRef` value type with canonical (leading-slash) keys.** `FileRef` is an immutable `{ bucket, key }` pair that stringifies to the SurrealQL pointer `<bucket>:/<key>`, alongside the `isFileRefLike` / `parseFileRef` / `toFileRef` / `fileRefToString` recognition helpers (mirroring how the library normalises `RecordId` values). Keys are stored verbatim in SurrealDB's canonical form, which carries a leading slash (`file::key()` yields `/a.txt` however the file was written); `toString()` always renders a single-slash pointer, and the server treats `a.txt` and `/a.txt` as the same file. Because the npm `surrealdb` SDK (2.0.2) decodes the file-pointer CBOR tag into a `{ bucket, key }` carrier, `head()` and `list()` consume the decoded value directly and split it into canonical `bucket` / `key` fields on each `FileEntry` (the original pointer stays on `FileEntry.file`) — an intentional asymmetry vs the Python/Go ports, whose SDKs cannot decode the tag.
+- **Multiple sessions.** `client.newSession()` (over the SDK's `newSession`) returns a `Session` wrapping `SurrealSession` and mirroring the client surface (CRUD builders + `use` / `signin` / `forkSession` / `closeSession`). Sessions require a live WebSocket connection (`SessionUnsupportedError` otherwise) and start UNAUTHENTICATED — sign in on the session when it needs more than guest access.
+
+### Verified
+
+- `deno fmt --check` — clean (on the canonical LF checkout / CI).
+- `deno lint` — clean (181 files).
+- `deno check mod.ts` / `deno check src/cli/main.ts src/cli/mod.ts` — clean.
+- `deno task test --ignore='src/test/integration*.test.ts'` — **225 passed (1868 steps)**, +19 tests / +86 steps over the 1.6.0 baseline of 206 passed (1782 steps), covering bucket DDL/SurrealQL generation, `FileRef` (verbatim keys, single-slash `toString`, equality), the `INFO FOR DB` parser round-trip, `head`/`list` normalisation, param-binding safety, the CLI command, and the `Session` wrapper. The one failing test (`CLI: db ping / schema tables` against a live database) is the same pre-existing, environment-dependent failure noted at 1.6.0.
+- Live integration (`src/test/integration_files.test.ts`) against SurrealDB 3.1.3 (`memory` datastore, `SURREAL_CAPS_ALLOW_EXPERIMENTAL=files`, `--allow-all`) — **1 passed (16 steps), 0 failed**: text/bytes round-trips, slash/no-slash key equivalence, exists/copy/rename/delete, canonical-key `head` and `list` (including a prefix filter), `FileRef` decoding through a record field, and session open/query/fork/close.
+
+### Housekeeping
+
+- Version bumped to `1.7.0` in `deno.json` (the npm package version is sourced from `deno.json` at `deno task build:npm` time, so the two stay in sync).
+
+---
+
 ## [1.6.0] - 2026-06-17
 
 ### Added
