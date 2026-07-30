@@ -2,6 +2,8 @@ import type { EdgeDefinition } from '../schema/edge.ts'
 import type { FieldDefinition } from '../schema/fields.ts'
 import { type IndexDefinition, IndexType, type TableDefinition } from '../schema/table.ts'
 import { fieldTypeToSql, generateEdgeSql, generateTableSql } from '../schema/sql.ts'
+import type { BucketDefinition } from '../schema/bucket.ts'
+import { generateAlterBucketSql, generateBucketSql, generateRemoveBucketSql } from '../schema/bucket.ts'
 import { DiffOperation, type SchemaDiff } from './models.ts'
 
 /**
@@ -276,6 +278,67 @@ export function diffEdges(
         table: newEdge.name,
         details: `Modify permissions on '${newEdge.name}'`,
         sql: `-- Permissions change on '${newEdge.name}' requires manual review`,
+      })
+    }
+  }
+
+  return diffs
+}
+
+/**
+ * Diff two sets of bucket definitions.
+ *
+ * Mirrors {@link diffTables}: buckets present only in `target` are added with a
+ * full `DEFINE BUCKET`, buckets present only in `current` are dropped with
+ * `REMOVE BUCKET`, and buckets present in both whose attributes changed emit an
+ * `ALTER BUCKET`. A bucket whose attributes are unchanged produces no diff.
+ */
+export function diffBuckets(
+  current: readonly BucketDefinition[],
+  target: readonly BucketDefinition[],
+): SchemaDiff[] {
+  const diffs: SchemaDiff[] = []
+  const currentMap = new Map(current.map((b) => [b.name, b]))
+  const targetMap = new Map(target.map((b) => [b.name, b]))
+
+  // Added buckets
+  for (const [name, bucket] of targetMap) {
+    if (!currentMap.has(name)) {
+      diffs.push({
+        operation: DiffOperation.ADD_BUCKET,
+        table: name,
+        bucket: name,
+        details: `Add bucket '${name}' (backend ${bucket.backend})`,
+        sql: generateBucketSql(bucket),
+      })
+    }
+  }
+
+  // Dropped buckets
+  for (const [name] of currentMap) {
+    if (!targetMap.has(name)) {
+      diffs.push({
+        operation: DiffOperation.DROP_BUCKET,
+        table: name,
+        bucket: name,
+        details: `Drop bucket '${name}'`,
+        sql: generateRemoveBucketSql(name),
+      })
+    }
+  }
+
+  // Modified buckets
+  for (const [name, targetBucket] of targetMap) {
+    const currentBucket = currentMap.get(name)
+    if (!currentBucket) continue
+    const alterSql = generateAlterBucketSql(currentBucket, targetBucket)
+    if (alterSql !== undefined) {
+      diffs.push({
+        operation: DiffOperation.MODIFY_BUCKET,
+        table: name,
+        bucket: name,
+        details: `Modify bucket '${name}'`,
+        sql: alterSql,
       })
     }
   }

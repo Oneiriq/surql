@@ -51,6 +51,15 @@ export function generateMigrationFromDiffs(
       case 'DROP_INDEX':
         downLines.push(`-- Recreate index on '${diff.table}' (manual)`)
         break
+      case 'ADD_BUCKET':
+        downLines.push(`REMOVE BUCKET IF EXISTS ${diff.table};`)
+        break
+      case 'DROP_BUCKET':
+        downLines.push(`-- Recreate bucket '${diff.table}' (manual)`)
+        break
+      case 'MODIFY_BUCKET':
+        downLines.push(`-- Revert bucket '${diff.table}' change (manual): ${diff.details}`)
+        break
       default:
         downLines.push(`-- Reverse: ${diff.details}`)
     }

@@ -1,4 +1,4 @@
-export { diffEdges, diffEvents, diffFields, diffIndexes, diffPermissions, diffTables } from './diff.ts'
+export { diffBuckets, diffEdges, diffEvents, diffFields, diffIndexes, diffPermissions, diffTables } from './diff.ts'
 export {
   discoverMigrations,
   generateMigrationFilename,

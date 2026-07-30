@@ -23,6 +23,17 @@ export {
   withTokenizer,
 } from './analyzer.ts'
 export {
+  type BucketBackend,
+  type BucketDefinition,
+  type BucketOptions,
+  bucketSchema,
+  fileBucket,
+  generateAlterBucketSql,
+  generateBucketSql,
+  generateRemoveBucketSql,
+  memoryBucket,
+} from './bucket.ts'
+export {
   bidirectionalEdge,
   type EdgeDefinition,
   EdgeMode,
@@ -38,6 +49,7 @@ export {
 export {
   arrayField,
   boolField,
+  bytesField,
   computedField,
   datetimeField,
   decimalField,
@@ -46,6 +58,7 @@ export {
   type FieldDefinition,
   type FieldPermissions,
   FieldType,
+  fileField,
   floatField,
   intField,
   numberField,
@@ -58,6 +71,7 @@ export {
   fetchDbInfo,
   fetchTableInfo,
   parseAccess,
+  parseBucket,
   parseDbInfo,
   parseEdgeInfo,
   parseEvent,
@@ -72,9 +86,11 @@ export {
 } from './parser.ts'
 export {
   clearRegistry,
+  getRegisteredBuckets,
   getRegisteredEdges,
   getRegisteredTables,
   getRegistry,
+  registerBucket,
   registerEdge,
   registerTable,
   SchemaRegistry,

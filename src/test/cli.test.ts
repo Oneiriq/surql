@@ -85,8 +85,19 @@ describe('CLI: help', () => {
     assertEquals(code, 0)
     assertStringIncludes(stdout, 'migrate')
     assertStringIncludes(stdout, 'schema')
+    assertStringIncludes(stdout, 'bucket')
     assertStringIncludes(stdout, 'db')
     assertStringIncludes(stdout, 'orchestrate')
+  })
+
+  it('shows bucket help', async () => {
+    const { code, stdout } = await runCli(['bucket', '--help'])
+    assertEquals(code, 0)
+    assertStringIncludes(stdout, 'define')
+    assertStringIncludes(stdout, 'list')
+    assertStringIncludes(stdout, 'rm')
+    assertStringIncludes(stdout, 'put')
+    assertStringIncludes(stdout, 'get')
   })
 
   it('shows migrate help', async () => {

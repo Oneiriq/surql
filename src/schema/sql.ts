@@ -2,6 +2,8 @@ import type { FieldDefinition } from './fields.ts'
 import { FieldType } from './fields.ts'
 import type { AccessDefinition } from './access.ts'
 import { AccessType } from './access.ts'
+import type { BucketDefinition } from './bucket.ts'
+import { generateBucketSql } from './bucket.ts'
 import type { AnalyzerDefinition } from './analyzer.ts'
 import { analyzerToSurql, validateAnalyzer } from './analyzer.ts'
 import type { EdgeDefinition } from './edge.ts'
@@ -238,6 +240,7 @@ export function generateSchemaSql(options: {
   tables?: TableDefinition[]
   edges?: EdgeDefinition[]
   access?: AccessDefinition[]
+  buckets?: BucketDefinition[]
   ifNotExists?: boolean
 }): string {
   const parts: string[] = []
@@ -264,6 +267,12 @@ export function generateSchemaSql(options: {
   if (options.access) {
     for (const acc of options.access) {
       parts.push(generateAccessSql(acc, 'DATABASE', emitOpts))
+    }
+  }
+
+  if (options.buckets) {
+    for (const bucket of options.buckets) {
+      parts.push(generateBucketSql(bucket, emitOpts))
     }
   }
 

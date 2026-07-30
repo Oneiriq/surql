@@ -4,6 +4,9 @@ import { ReadQL } from './crud/read.ts'
 import { UpsertQL } from './crud/upsert.ts'
 import { type PatchOperation, PatchQL } from './crud/patch.ts'
 import { type ConnectionConfig, SurrealConnectionManager } from './auth/connection.ts'
+import { Bucket } from './files/bucket.ts'
+import { Session, SessionUnsupportedError } from './sessions/session.ts'
+import { intoSurQlError } from './utils/surrealError.ts'
 import type { ConnectionProvider, QueryOptions } from './crud/base.ts'
 import type { RecordId, Surreal } from 'surrealdb'
 import type { SurrealDbTable } from './crud/types.ts'
@@ -104,6 +107,46 @@ export class SurQLClient implements ConnectionProvider {
 
   getCurrentToken(): AuthToken | null {
     return this.connectionManager.getCurrentToken()
+  }
+
+  /**
+   * Get a handle to a SurrealDB v3 object-storage bucket.
+   *
+   * The returned {@link Bucket} exposes file operations (`put`, `get`,
+   * `delete`, `copy`, `rename`, `list`, …) that run through parameterized
+   * `type::file($bucket, $key)` queries. The bucket itself must already be
+   * defined on the database (see `DEFINE BUCKET` / {@link bucketSchema}).
+   *
+   * @param name - The bucket name
+   * @returns A bucket handle bound to this client's connection
+   */
+  bucket(name: string): Bucket {
+    return new Bucket(this, name)
+  }
+
+  /**
+   * Open a new independent session on this connection.
+   *
+   * Each session carries its own namespace/database selection, authentication
+   * state, and variables, while sharing the underlying socket. Sessions require
+   * a WebSocket connection; calling this over an HTTP or embedded connection
+   * throws {@link SessionUnsupportedError}.
+   *
+   * @returns A {@link Session} mirroring the client's query surface
+   * @throws {@link SessionUnsupportedError} when the connection is not WebSocket
+   */
+  async newSession(): Promise<Session> {
+    if (!this.connectionManager.usesWebSocket()) {
+      throw new SessionUnsupportedError()
+    }
+    try {
+      const db = await this.connectionManager.getConnection()
+      const session = await db.newSession()
+      return new Session(session)
+    } catch (e) {
+      if (e instanceof SessionUnsupportedError) throw e
+      throw intoSurQlError('newSession failed:', e)
+    }
   }
 
   /** @internal */

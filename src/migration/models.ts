@@ -29,15 +29,23 @@ export enum DiffOperation {
   ADD_EVENT = 'ADD_EVENT',
   DROP_EVENT = 'DROP_EVENT',
   MODIFY_PERMISSIONS = 'MODIFY_PERMISSIONS',
+  ADD_BUCKET = 'ADD_BUCKET',
+  DROP_BUCKET = 'DROP_BUCKET',
+  MODIFY_BUCKET = 'MODIFY_BUCKET',
 }
 
 /**
- * A single schema difference
+ * A single schema difference.
+ *
+ * `table` carries the owning object's name for table/field/index/event
+ * operations; for bucket operations it carries the bucket name and `bucket` is
+ * also populated for clarity.
  */
 export interface SchemaDiff {
   readonly operation: DiffOperation
   readonly table: string
   readonly field?: string
+  readonly bucket?: string
   readonly details: string
   readonly sql: string
 }
