@@ -51,7 +51,10 @@ jobs:
       (github.event_name == 'release' && !github.event.release.prerelease) ||
       (github.event_name == 'workflow_dispatch' && (inputs.target == 'npm' || inputs.target == 'both'))
     runs-on: [self-hosted, aur0]
-    environment: ${{ github.event_name == 'release' && 'publish' || '' }}
+    # Always the `publish` environment. NPM_TOKEN lives there and nowhere
+    # else -- there is no repo- or org-level fallback -- so a run without
+    # it publishes with an empty NODE_AUTH_TOKEN and fails on auth.
+    environment: publish
     permissions:
       contents: read
     steps:
