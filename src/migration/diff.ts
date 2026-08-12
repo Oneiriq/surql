@@ -1,7 +1,7 @@
 import type { EdgeDefinition } from '../schema/edge.ts'
 import type { FieldDefinition } from '../schema/fields.ts'
-import { type IndexDefinition, IndexType, type TableDefinition } from '../schema/table.ts'
-import { fieldTypeToSql, generateEdgeSql, generateTableSql } from '../schema/sql.ts'
+import type { IndexDefinition, TableDefinition } from '../schema/table.ts'
+import { fieldTypeToSql, generateEdgeSql, generateIndexSql, generateTableSql } from '../schema/sql.ts'
 import type { BucketDefinition } from '../schema/bucket.ts'
 import { generateAlterBucketSql, generateBucketSql, generateRemoveBucketSql } from '../schema/bucket.ts'
 import { DiffOperation, type SchemaDiff } from './models.ts'
@@ -116,28 +116,16 @@ export function diffFields(
   return diffs
 }
 
+/**
+ * Render a `DEFINE INDEX` statement for a migration.
+ *
+ * Delegates to the schema emitter rather than restating the clause order. The
+ * two had already drifted: this function knew UNIQUE, full-text, and MTREE, so
+ * an HNSW index in a migration rendered as a plain index with its dimension,
+ * metric, and tuning silently dropped.
+ */
 function buildIndexSql(tableName: string, idx: IndexDefinition): string {
-  const fields = idx.fields.join(', ')
-  let sql = `DEFINE INDEX ${idx.name} ON TABLE ${tableName} FIELDS ${fields}`
-
-  switch (idx.type) {
-    case IndexType.UNIQUE:
-      sql += ' UNIQUE'
-      break
-    case IndexType.SEARCH:
-      sql += ` FULLTEXT ANALYZER ${idx.searchAnalyzer ?? 'ascii'}`
-      if (idx.bm25) sql += ' BM25'
-      if (idx.highlights) sql += ' HIGHLIGHTS'
-      break
-    case IndexType.MTREE:
-      sql += ` MTREE DIMENSION ${idx.mtreeDimension}`
-      if (idx.mtreeDistance) sql += ` DIST ${idx.mtreeDistance}`
-      if (idx.mtreeVectorType) sql += ` TYPE ${idx.mtreeVectorType}`
-      if (idx.mtreeCapacity) sql += ` CAPACITY ${idx.mtreeCapacity}`
-      break
-  }
-
-  return sql + ';'
+  return generateIndexSql(tableName, idx)
 }
 
 /**

@@ -37,7 +37,14 @@ import { EdgeMode } from './edge.ts'
 import type { FieldDefinition } from './fields.ts'
 import { FieldType } from './fields.ts'
 import type { EventDefinition, IndexDefinition, TableDefinition, TablePermissions } from './table.ts'
-import { HnswDistanceType, IndexType, MTreeDistanceType, MTreeVectorType, TableMode } from './table.ts'
+import {
+  DiskAnnDistanceType,
+  HnswDistanceType,
+  IndexType,
+  MTreeDistanceType,
+  MTreeVectorType,
+  TableMode,
+} from './table.ts'
 
 /** Strip `readonly` modifiers so definitions can be built incrementally. */
 type Mutable<T> = {
@@ -114,13 +121,21 @@ const TYPE_WORD_RE = /^([A-Za-z_][A-Za-z0-9_]*)/
  */
 const ARRAY_SUBFIELD_RE = /(?:\[\*\]|\.\*)\s*$/
 
-const COLUMNS_RE = /COLUMNS\s+([^;]+?)(?:UNIQUE|FULLTEXT|SEARCH|HNSW|MTREE|\s*;|\s*$)/i
-const FIELDS_RE = /FIELDS\s+([^;]+?)(?:UNIQUE|FULLTEXT|SEARCH|HNSW|MTREE|\s*;|\s*$)/i
+const COLUMNS_RE = /COLUMNS\s+([^;]+?)(?:UNIQUE|FULLTEXT|SEARCH|HNSW|MTREE|DISKANN|\s*;|\s*$)/i
+const FIELDS_RE = /FIELDS\s+([^;]+?)(?:UNIQUE|FULLTEXT|SEARCH|HNSW|MTREE|DISKANN|\s*;|\s*$)/i
 const ANALYZER_RE = /ANALYZER\s+(\w+)/i
 const DIMENSION_RE = /DIMENSION\s+(\d+)/i
 const DISTANCE_RE = /(?:DIST|DISTANCE)\s+(\w+)/i
 const EFC_RE = /EFC\s+(\d+)/i
 const M_RE = /\bM\s+(\d+)/i
+const DEGREE_RE = /\bDEGREE\s+(\d+)/i
+const L_BUILD_RE = /\bL_BUILD\s+(\d+)/i
+/**
+ * `ALPHA <decimal>`. The engine echoes a float literal with a trailing `f`
+ * suffix (`ALPHA 1.2f`) and an integer literal bare (`ALPHA 2`); the capture
+ * excludes the suffix so the stored value matches what code declares.
+ */
+const ALPHA_RE = /\bALPHA\s+(\d+(?:\.\d+)?)/i
 const WHEN_RE = /WHEN\s+([\s\S]+?)\s+THEN/i
 const THEN_BRACE_RE = /THEN\s+\{([\s\S]+?)\}(?:\s*;|\s*$)/i
 const THEN_BARE_RE = /THEN\s+([\s\S]+?)(?:\s*;|\s*$)/i
@@ -437,6 +452,7 @@ function extractIndexType(definition: string): IndexType {
   if (upper.includes('FULLTEXT') || upper.includes('SEARCH')) return IndexType.SEARCH
   if (upper.includes('HNSW')) return IndexType.HNSW
   if (upper.includes('MTREE')) return IndexType.MTREE
+  if (upper.includes('DISKANN')) return IndexType.DISKANN
   return IndexType.STANDARD
 }
 
@@ -520,9 +536,41 @@ function extractVectorType(definition: string): MTreeVectorType | undefined {
         return MTreeVectorType.I32
       case 'I16':
         return MTreeVectorType.I16
+      case 'F16':
+        return MTreeVectorType.F16
+      case 'I8':
+        return MTreeVectorType.I8
+      case 'U8':
+        return MTreeVectorType.U8
     }
   }
   return undefined
+}
+
+/**
+ * Extract the DIST metric of a DISKANN definition. `COSINE_NORMALIZED` and
+ * `INNER_PRODUCT` carry an underscore, which the shared distance pattern
+ * already admits through `\w`.
+ */
+function extractDiskAnnDistance(definition: string): DiskAnnDistanceType | undefined {
+  const m = DISTANCE_RE.exec(definition)
+  if (!m) return undefined
+  const key = m[1].toUpperCase()
+  const known: Record<string, DiskAnnDistanceType> = {
+    COSINE: DiskAnnDistanceType.COSINE,
+    COSINE_NORMALIZED: DiskAnnDistanceType.COSINE_NORMALIZED,
+    EUCLIDEAN: DiskAnnDistanceType.EUCLIDEAN,
+    INNER_PRODUCT: DiskAnnDistanceType.INNER_PRODUCT,
+  }
+  return known[key]
+}
+
+/** Read the first integer captured by `re`, or `undefined`. */
+function extractNumber(re: RegExp, definition: string): number | undefined {
+  const m = re.exec(definition)
+  if (!m) return undefined
+  const n = Number.parseInt(m[1], 10)
+  return Number.isNaN(n) ? undefined : n
 }
 
 function extractHnswEfc(definition: string): number | undefined {
@@ -580,6 +628,20 @@ export function parseIndex(name: string, definition: string): IndexDefinition | 
     if (efc !== undefined) base.hnswEfc = efc
     const m = extractHnswM(definition)
     if (m !== undefined) base.hnswM = m
+  } else if (type === IndexType.DISKANN) {
+    const dim = extractDimension(definition)
+    if (dim !== undefined) base.mtreeDimension = dim
+    const vt = extractVectorType(definition)
+    if (vt !== undefined) base.mtreeVectorType = vt
+    const dist = extractDiskAnnDistance(definition)
+    if (dist !== undefined) base.diskAnnDistance = dist
+    const degree = extractNumber(DEGREE_RE, definition)
+    if (degree !== undefined) base.diskAnnDegree = degree
+    const lBuild = extractNumber(L_BUILD_RE, definition)
+    if (lBuild !== undefined) base.diskAnnLBuild = lBuild
+    const alpha = ALPHA_RE.exec(definition)
+    if (alpha) base.diskAnnAlpha = alpha[1]
+    base.diskAnnHashedVector = definition.toUpperCase().includes('HASHED_VECTOR')
   }
 
   return Object.freeze(base)

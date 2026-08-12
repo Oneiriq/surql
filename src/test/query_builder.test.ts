@@ -194,7 +194,9 @@ describe('Query Builder', () => {
   describe('vector search', () => {
     it('should build vector search query', () => {
       const sql = select().fromTable('docs').vectorSearch('embedding', [0.1, 0.2, 0.3]).toSurQL()
-      assertStringIncludes(sql, 'embedding <|10|> [0.1, 0.2, 0.3]')
+      // An omitted metric renders COSINE. The bare `<|k|>` form this used to
+      // assert is a parse error on SurrealDB 3.x.
+      assertStringIncludes(sql, 'embedding <|10,COSINE|> [0.1, 0.2, 0.3]')
     })
   })
 

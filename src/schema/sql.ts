@@ -8,7 +8,14 @@ import type { AnalyzerDefinition } from './analyzer.ts'
 import { analyzerToSurql, validateAnalyzer } from './analyzer.ts'
 import type { EdgeDefinition } from './edge.ts'
 import type { EventDefinition, IndexDefinition, TableDefinition } from './table.ts'
-import { IndexType } from './table.ts'
+import {
+  DISKANN_DEFAULT_ALPHA,
+  DISKANN_DEFAULT_DEGREE,
+  DISKANN_DEFAULT_L_BUILD,
+  DiskAnnDistanceType,
+  IndexType,
+  MTreeVectorType,
+} from './table.ts'
 
 /**
  * Render a `PERMISSIONS` clause for a `DEFINE TABLE`, `DEFINE FIELD`, or
@@ -78,7 +85,14 @@ function generateFieldSql(tableName: string, field: FieldDefinition): string {
   return parts[0] + ';'
 }
 
-function generateIndexSql(tableName: string, idx: IndexDefinition): string {
+/**
+ * Render a `DEFINE INDEX` statement.
+ *
+ * Exported so the migration diff renders through the same function rather than
+ * keeping a second copy of the clause order; the two had already drifted, with
+ * the diff emitting a plain index for anything it did not recognise.
+ */
+export function generateIndexSql(tableName: string, idx: IndexDefinition): string {
   const fields = idx.fields.join(', ')
   let sql = `DEFINE INDEX ${idx.name} ON TABLE ${tableName} FIELDS ${fields}`
 
@@ -103,6 +117,20 @@ function generateIndexSql(tableName: string, idx: IndexDefinition): string {
       if (idx.mtreeVectorType) sql += ` TYPE ${idx.mtreeVectorType}`
       if (idx.hnswEfc !== undefined) sql += ` EFC ${idx.hnswEfc}`
       if (idx.hnswM !== undefined) sql += ` M ${idx.hnswM}`
+      break
+    case IndexType.DISKANN:
+      // The engine always echoes DIST / TYPE / DEGREE / L_BUILD / ALPHA back
+      // with its defaults filled in, even when the definition never stated
+      // them, so this spells them all. A definition that omitted one would
+      // never compare equal to its own echo, and a reconcile would re-apply
+      // the index on every boot.
+      sql += ` DISKANN DIMENSION ${idx.mtreeDimension}`
+      sql += ` DIST ${idx.diskAnnDistance ?? DiskAnnDistanceType.EUCLIDEAN}`
+      sql += ` TYPE ${idx.mtreeVectorType ?? MTreeVectorType.F32}`
+      sql += ` DEGREE ${idx.diskAnnDegree ?? DISKANN_DEFAULT_DEGREE}`
+      sql += ` L_BUILD ${idx.diskAnnLBuild ?? DISKANN_DEFAULT_L_BUILD}`
+      sql += ` ALPHA ${idx.diskAnnAlpha ?? DISKANN_DEFAULT_ALPHA}`
+      if (idx.diskAnnHashedVector) sql += ' HASHED_VECTOR'
       break
   }
 
