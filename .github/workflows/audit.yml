@@ -32,6 +32,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege: every step here only reads the checkout and runs npm
+# against a manifest it synthesizes itself. Without this block the job
+# inherits the repository default, which code scanning flags
+# (actions/missing-workflow-permissions).
+permissions:
+  contents: read
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
