@@ -50,7 +50,7 @@ describe('Query.fulltextSearch', () => {
       .vectorSearch('embedding', [0.1, 0.2], undefined, 5)
       .fulltextSearch('content', 1, 'term')
       .toSurQL()
-    assertStringIncludes(sql, 'embedding <|5|> [0.1, 0.2]')
+    assertStringIncludes(sql, 'embedding <|5,COSINE|> [0.1, 0.2]')
     assertStringIncludes(sql, "content @1@ 'term'")
     assertStringIncludes(sql, ' AND ')
   })

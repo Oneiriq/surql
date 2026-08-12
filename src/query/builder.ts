@@ -37,6 +37,7 @@ interface QueryState<T> {
   readonly vectorData: readonly number[] | null
   readonly vectorK: number | null
   readonly vectorDistance: VectorDistanceType | null
+  readonly vectorEf: number | null
   readonly fulltextField: string | null
   readonly fulltextReference: number | null
   readonly fulltextQuery: string | null
@@ -65,6 +66,7 @@ function defaultState<T>(): QueryState<T> {
     vectorData: null,
     vectorK: null,
     vectorDistance: null,
+    vectorEf: null,
     fulltextField: null,
     fulltextReference: null,
     fulltextQuery: null,
@@ -181,7 +183,18 @@ export class Query<T = Record<string, unknown>> {
     return this.with({ hints: [...this.state.hints, hint] })
   }
 
-  /** Configure vector search */
+  /**
+   * Configure an exhaustive vector search, rendering the metric form
+   * `<|k,METRIC|>`.
+   *
+   * The engine plans this as a KnnTopK over a table scan: every row is
+   * compared and no index is involved. Reach for {@link vectorSearchIndexed}
+   * when the field carries an HNSW or DISKANN index.
+   *
+   * An omitted metric defaults to `COSINE`. It cannot be left out of the
+   * rendered operator: the bare `<|k|>` form belongs to the KTree era and is a
+   * parse error on SurrealDB 3.x.
+   */
   vectorSearch(
     field: string,
     vector: number[],
@@ -192,7 +205,37 @@ export class Query<T = Record<string, unknown>> {
       vectorField: field,
       vectorData: vector,
       vectorK: k,
-      vectorDistance: distance ?? null,
+      vectorDistance: distance ?? 'COSINE',
+      vectorEf: null,
+    })
+  }
+
+  /**
+   * Configure an index-backed vector search, rendering the integer exploration
+   * form `<|k,ef|>`.
+   *
+   * The second argument of the KNN operator decides the plan. An integer is
+   * the exploration factor and the engine answers with a KnnScan over the
+   * field's HNSW or DISKANN index; a metric keyword there asks for an
+   * exhaustive KnnTopK instead. The metric belongs to the index, so this
+   * method takes none.
+   *
+   * @param ef Exploration factor at query time; higher trades speed for recall
+   */
+  vectorSearchIndexed(
+    field: string,
+    vector: number[],
+    k: number = 10,
+    ef: number = 40,
+  ): Query<T> {
+    return this.with({
+      vectorField: field,
+      vectorData: vector,
+      vectorK: k,
+      vectorEf: ef,
+      // Clear the exhaustive metric so a chained call cannot leave both forms
+      // armed and quietly fall back to a table scan.
+      vectorDistance: null,
     })
   }
 
@@ -288,7 +331,15 @@ export class Query<T = Record<string, unknown>> {
     const whereParts: string[] = []
     if (this.state.vectorField && this.state.vectorData) {
       const vecStr = `[${this.state.vectorData.join(', ')}]`
-      whereParts.push(`${this.state.vectorField} <|${this.state.vectorK ?? 10}|> ${vecStr}`)
+      const k = this.state.vectorK ?? 10
+      // An integer second argument reaches the index through a KnnScan plan; a
+      // metric keyword there asks the engine for an exhaustive KnnTopK. The
+      // bare `<|k|>` form is a parse error on SurrealDB 3.x, so one of the two
+      // always renders.
+      const op = this.state.vectorEf !== null
+        ? `<|${k},${this.state.vectorEf}|>`
+        : `<|${k},${this.state.vectorDistance ?? 'COSINE'}|>`
+      whereParts.push(`${this.state.vectorField} ${op} ${vecStr}`)
     }
     if (
       this.state.fulltextField !== null &&

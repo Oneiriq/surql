@@ -98,6 +98,12 @@ export {
 export { generateAccessSql, generateAnalyzerSql, generateEdgeSql, generateSchemaSql, generateTableSql } from './sql.ts'
 export {
   bm25Index,
+  canonicalAlpha,
+  DISKANN_DEFAULT_ALPHA,
+  DISKANN_DEFAULT_DEGREE,
+  DISKANN_DEFAULT_L_BUILD,
+  DiskAnnDistanceType,
+  diskannIndex,
   event,
   type EventDefinition,
   HnswDistanceType,

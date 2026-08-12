@@ -18,7 +18,31 @@ export enum IndexType {
   SEARCH = 'SEARCH',
   MTREE = 'MTREE',
   HNSW = 'HNSW',
+  /**
+   * On-disk approximate-nearest-neighbour graph (SurrealDB 3.2+). The graph
+   * lives on disk rather than in memory, so an index outgrows RAM without
+   * outgrowing the box. Build it with {@link diskannIndex}.
+   */
+  DISKANN = 'DISKANN',
 }
+
+/**
+ * Graph out-degree the engine assumes (and echoes) for a DISKANN index that
+ * never stated `DEGREE`.
+ */
+export const DISKANN_DEFAULT_DEGREE = 64
+
+/**
+ * Build-time candidate list size the engine assumes (and echoes) for a DISKANN
+ * index that never stated `L_BUILD`.
+ */
+export const DISKANN_DEFAULT_L_BUILD = 100
+
+/**
+ * Pruning slack the engine assumes (and echoes) for a DISKANN index that never
+ * stated `ALPHA`.
+ */
+export const DISKANN_DEFAULT_ALPHA = '1.2'
 
 /**
  * MTREE vector distance metric
@@ -45,15 +69,53 @@ export enum HnswDistanceType {
 }
 
 /**
- * MTREE vector type (also used for HNSW)
+ * DISKANN vector distance metric.
+ *
+ * Its own enum rather than a reuse of {@link HnswDistanceType}: the engine's
+ * DISKANN set both adds metrics HNSW lacks (`INNER_PRODUCT`,
+ * `COSINE_NORMALIZED`) and refuses every HNSW metric outside it, so an
+ * out-of-set metric is unrepresentable here.
+ */
+export enum DiskAnnDistanceType {
+  COSINE = 'COSINE',
+  COSINE_NORMALIZED = 'COSINE_NORMALIZED',
+  EUCLIDEAN = 'EUCLIDEAN',
+  INNER_PRODUCT = 'INNER_PRODUCT',
+}
+
+/**
+ * Numeric type for vector components in MTREE, HNSW, and DISKANN indexes.
+ *
+ * One shared vocabulary; each index kind accepts a subset. The engine takes
+ * every member for HNSW, refuses `F16` / `I8` / `U8` for MTREE, and refuses
+ * everything but `F32` / `F16` / `I8` / `U8` for DISKANN. The builders throw
+ * on a combination the engine would reject.
  */
 export enum MTreeVectorType {
   F64 = 'F64',
   F32 = 'F32',
+  F16 = 'F16',
   I64 = 'I64',
   I32 = 'I32',
   I16 = 'I16',
+  I8 = 'I8',
+  U8 = 'U8',
 }
+
+/** Element types MTREE refuses; the engine answers with a bare parse error. */
+const MTREE_REFUSED_TYPES: readonly MTreeVectorType[] = [
+  MTreeVectorType.F16,
+  MTreeVectorType.I8,
+  MTreeVectorType.U8,
+]
+
+/** The only element types DISKANN accepts. */
+const DISKANN_ALLOWED_TYPES: readonly MTreeVectorType[] = [
+  MTreeVectorType.F32,
+  MTreeVectorType.F16,
+  MTreeVectorType.I8,
+  MTreeVectorType.U8,
+]
 
 /**
  * Index definition
@@ -85,6 +147,20 @@ export interface IndexDefinition {
   readonly hnswDistance?: HnswDistanceType
   readonly hnswEfc?: number
   readonly hnswM?: number
+  readonly diskAnnDistance?: DiskAnnDistanceType
+  /** DISKANN graph out-degree (`DEGREE`, engine default 64). */
+  readonly diskAnnDegree?: number
+  /** DISKANN build-time candidate list size (`L_BUILD`, engine default 100). */
+  readonly diskAnnLBuild?: number
+  /**
+   * DISKANN pruning slack (`ALPHA`, engine default 1.2), held as the decimal
+   * literal the statement carries. The engine echoes a float literal with a
+   * trailing `f` suffix (`ALPHA 1.2f`), which the parser strips so code and
+   * echo compare equal.
+   */
+  readonly diskAnnAlpha?: string
+  /** Whether a DISKANN index stores hashed vectors (`HASHED_VECTOR`). */
+  readonly diskAnnHashedVector?: boolean
 }
 
 /**
@@ -225,13 +301,20 @@ export function mtreeIndex(
     capacity?: number
   } = {},
 ): IndexDefinition {
+  const vectorType = options.vectorType ?? MTreeVectorType.F64
+  if (MTREE_REFUSED_TYPES.includes(vectorType)) {
+    throw new Error(
+      `MTREE index '${name}' cannot use TYPE ${vectorType}: the engine only accepts ` +
+        `F64, F32, I64, I32, or I16 for MTREE`,
+    )
+  }
   return Object.freeze({
     name,
     fields: [field],
     type: IndexType.MTREE,
     mtreeDimension: dimension,
     mtreeDistance: options.distance ?? MTreeDistanceType.COSINE,
-    mtreeVectorType: options.vectorType ?? MTreeVectorType.F64,
+    mtreeVectorType: vectorType,
     mtreeCapacity: options.capacity,
   })
 }
@@ -257,6 +340,62 @@ export function hnswIndex(
     hnswDistance: options.distance ?? HnswDistanceType.COSINE,
     hnswEfc: options.efc,
     hnswM: options.m,
+  })
+}
+
+/**
+ * Render a DISKANN `ALPHA` value the way the engine echoes it.
+ *
+ * A whole number echoes bare (`ALPHA 2`) and a fractional one echoes as a
+ * float literal with a trailing `f` the parser strips (`ALPHA 1.2f` reads back
+ * as `1.2`). Producing that same shape here is what lets a definition compare
+ * equal to its own echo instead of re-applying on every reconcile.
+ */
+export function canonicalAlpha(alpha: number): string {
+  return Number.isInteger(alpha) ? String(Math.trunc(alpha)) : String(alpha)
+}
+
+/**
+ * Create a DISKANN vector index.
+ *
+ * DISKANN keeps its graph on disk, which suits a corpus that outgrows the
+ * memory an HNSW graph would need. The engine echoes `DEGREE` / `L_BUILD` /
+ * `ALPHA` back with defaults filled in even when the definition never stated
+ * them, so this fills the same defaults up front.
+ *
+ * Throws when the element type is one the engine refuses for DISKANN.
+ */
+export function diskannIndex(
+  name: string,
+  field: string,
+  dimension: number,
+  options: {
+    distance?: DiskAnnDistanceType
+    vectorType?: MTreeVectorType
+    degree?: number
+    lBuild?: number
+    alpha?: number
+    hashedVector?: boolean
+  } = {},
+): IndexDefinition {
+  const vectorType = options.vectorType ?? MTreeVectorType.F32
+  if (!DISKANN_ALLOWED_TYPES.includes(vectorType)) {
+    throw new Error(
+      `DISKANN index '${name}' cannot use TYPE ${vectorType}: the engine only accepts ` +
+        `F32, F16, I8, or U8 for DISKANN`,
+    )
+  }
+  return Object.freeze({
+    name,
+    fields: [field],
+    type: IndexType.DISKANN,
+    mtreeDimension: dimension,
+    mtreeVectorType: vectorType,
+    diskAnnDistance: options.distance ?? DiskAnnDistanceType.EUCLIDEAN,
+    diskAnnDegree: options.degree ?? DISKANN_DEFAULT_DEGREE,
+    diskAnnLBuild: options.lBuild ?? DISKANN_DEFAULT_L_BUILD,
+    diskAnnAlpha: options.alpha === undefined ? DISKANN_DEFAULT_ALPHA : canonicalAlpha(options.alpha),
+    diskAnnHashedVector: options.hashedVector ?? false,
   })
 }
 
