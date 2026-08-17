@@ -32,7 +32,7 @@ jobs:
     # also keeps fork-PR code off the org's internal runner.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup Deno
         uses: denoland/setup-deno@v2
