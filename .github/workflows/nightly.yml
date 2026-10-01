@@ -30,7 +30,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         deno: [v2.x, canary]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup Deno
         uses: denoland/setup-deno@v2
@@ -63,7 +63,7 @@ jobs:
         deno: [v2.x, canary]
         surreal: ['v3.0.5', 'latest']
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup Deno
         uses: denoland/setup-deno@v2

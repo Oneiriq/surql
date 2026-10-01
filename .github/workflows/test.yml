@@ -20,7 +20,7 @@ jobs:
       matrix:
         deno-version: [v2.x]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Setup Deno
         uses: denoland/setup-deno@v2
         with:
