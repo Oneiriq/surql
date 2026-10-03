@@ -225,13 +225,13 @@ export class ReadQL<R extends { id: RecordId }, T = unknown> extends QueryBuilde
    * // Direct condition
    * const results = await query('orders')
    *   .groupBy('customer_id')
-   *   .having('COUNT(*) > 5')
+   *   .having('count() > 5')
    *   .execute()
    *
    * // Fluent style
    * const results = await query('sales')
    *   .groupBy('product_id')
-   *   .having('SUM(amount)', Op.GREATER_THAN, 1000)
+   *   .having('math::sum(amount)', Op.GREATER_THAN, 1000)
    *   .execute()
    */
   having(conditionOrField: string, operator?: Op, value?: unknown): this {
@@ -247,9 +247,14 @@ export class ReadQL<R extends { id: RecordId }, T = unknown> extends QueryBuilde
   }
 
   /**
-   * Add COUNT aggregation
+   * Add a `count()` aggregation, aliased `count`
    *
-   * @param field - Field to count (defaults to '*' for all records)
+   * With no field this renders `count()`, the number of rows in each group. With a
+   * field it renders `count(field)`, the number of rows whose value for that field
+   * is truthy. `'*'` is accepted as a synonym for "no field" and also renders
+   * `count()`; SurrealQL has no `COUNT(*)` form.
+   *
+   * @param field - Field to count (omit to count every row)
    * @returns this - For method chaining
    * @example
    * const results = await query('orders')
@@ -257,16 +262,18 @@ export class ReadQL<R extends { id: RecordId }, T = unknown> extends QueryBuilde
    *   .count()
    *   .execute()
    */
-  count(field = '*'): this {
-    if (field !== '*') {
-      this.validateFieldName(field)
+  count(field?: string): this {
+    if (field === undefined || field === '*') {
+      this.aggregations.push('count() as count')
+      return this
     }
-    this.aggregations.push(`COUNT(${field}) as count`)
+    this.validateFieldName(field)
+    this.aggregations.push(`count(${field}) as count`)
     return this
   }
 
   /**
-   * Add SUM aggregation
+   * Add a `math::sum()` aggregation, aliased `sum_<field>`
    *
    * @param field - Field to sum
    * @returns this - For method chaining
@@ -278,12 +285,12 @@ export class ReadQL<R extends { id: RecordId }, T = unknown> extends QueryBuilde
    */
   sum(field: string): this {
     this.validateFieldName(field)
-    this.aggregations.push(`SUM(${field}) as sum_${field.replace(/[^a-zA-Z0-9]/g, '_')}`)
+    this.aggregations.push(`math::sum(${field}) as sum_${field.replace(/[^a-zA-Z0-9]/g, '_')}`)
     return this
   }
 
   /**
-   * Add AVG aggregation
+   * Add a `math::mean()` aggregation, aliased `avg_<field>`
    *
    * @param field - Field to average
    * @returns this - For method chaining
@@ -295,12 +302,12 @@ export class ReadQL<R extends { id: RecordId }, T = unknown> extends QueryBuilde
    */
   avg(field: string): this {
     this.validateFieldName(field)
-    this.aggregations.push(`AVG(${field}) as avg_${field.replace(/[^a-zA-Z0-9]/g, '_')}`)
+    this.aggregations.push(`math::mean(${field}) as avg_${field.replace(/[^a-zA-Z0-9]/g, '_')}`)
     return this
   }
 
   /**
-   * Add MIN aggregation
+   * Add a `math::min()` aggregation, aliased `min_<field>`
    *
    * @param field - Field to find minimum value
    * @returns this - For method chaining
@@ -312,12 +319,12 @@ export class ReadQL<R extends { id: RecordId }, T = unknown> extends QueryBuilde
    */
   min(field: string): this {
     this.validateFieldName(field)
-    this.aggregations.push(`MIN(${field}) as min_${field.replace(/[^a-zA-Z0-9]/g, '_')}`)
+    this.aggregations.push(`math::min(${field}) as min_${field.replace(/[^a-zA-Z0-9]/g, '_')}`)
     return this
   }
 
   /**
-   * Add MAX aggregation
+   * Add a `math::max()` aggregation, aliased `max_<field>`
    *
    * @param field - Field to find maximum value
    * @returns this - For method chaining
@@ -329,7 +336,7 @@ export class ReadQL<R extends { id: RecordId }, T = unknown> extends QueryBuilde
    */
   max(field: string): this {
     this.validateFieldName(field)
-    this.aggregations.push(`MAX(${field}) as max_${field.replace(/[^a-zA-Z0-9]/g, '_')}`)
+    this.aggregations.push(`math::max(${field}) as max_${field.replace(/[^a-zA-Z0-9]/g, '_')}`)
     return this
   }
 

@@ -131,7 +131,7 @@ const stats = await client.query<SaleStats>('sales')
   .count()
   .sum('amount')
   .avg('amount')
-  .having('SUM(amount)', Op.GREATER_THAN, 10000)
+  .having('math::sum(amount)', Op.GREATER_THAN, 10000)
   .orderBy('sum_amount', SortDirection.DESC)
   .execute()
 ```

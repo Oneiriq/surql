@@ -29,7 +29,7 @@ const userStats = await client.query('user_sessions')
   .groupBy('device_type', 'location')
   .count('session_id')
   .sum('duration_minutes')
-  .having('COUNT(session_id)', Op.GREATER_THAN, 5)
+  .having('count(session_id)', Op.GREATER_THAN, 5)
   .orderBy('sum_duration_minutes', SortDirection.DESC)
   .execute()
 

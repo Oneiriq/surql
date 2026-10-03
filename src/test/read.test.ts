@@ -369,6 +369,63 @@ describe('ReadQL', () => {
       }
     })
   })
+
+  describe('aggregations', () => {
+    // Runs the builder against a stub connection and returns the SurrealQL it sent.
+    async function renderedSql(build: (q: ReadQL<TestUserRaw>) => ReadQL<TestUserRaw>): Promise<string> {
+      let captured = ''
+      const connectionStub = stub(mockConnectionProvider, 'getConnection', () =>
+        Promise.resolve({
+          query: (sql: string) => {
+            captured = sql
+            return Promise.resolve([[]])
+          },
+          close: () => Promise.resolve(),
+        } as unknown as Surreal))
+      try {
+        await build(query<TestUserRaw>(mockConnectionProvider, 'orders', { warnings: 'suppress' })).execute()
+      } finally {
+        connectionStub.restore()
+      }
+      return captured
+    }
+
+    it('should render count() for a row count, never COUNT(*)', async () => {
+      assertEquals(
+        await renderedSql((q) => q.groupBy('status').count()),
+        'SELECT status, count() as count FROM orders GROUP BY status',
+      )
+    })
+
+    it("should render count() when '*' is passed explicitly", async () => {
+      assertEquals(
+        await renderedSql((q) => q.groupBy('status').count('*')),
+        'SELECT status, count() as count FROM orders GROUP BY status',
+      )
+    })
+
+    it('should render count(field) for a field count', async () => {
+      assertEquals(
+        await renderedSql((q) => q.groupBy('status').count('paid')),
+        'SELECT status, count(paid) as count FROM orders GROUP BY status',
+      )
+    })
+
+    it('should render sum/avg/min/max as math:: functions with their aliases', async () => {
+      assertEquals(
+        await renderedSql((q) => q.groupBy('status').sum('total').avg('total').min('total').max('total')),
+        'SELECT status, math::sum(total) as sum_total, math::mean(total) as avg_total, ' +
+          'math::min(total) as min_total, math::max(total) as max_total FROM orders GROUP BY status',
+      )
+    })
+
+    it('should sanitise a nested field into the alias but keep the path in the call', async () => {
+      assertEquals(
+        await renderedSql((q) => q.groupBy('region').sum('totals.net')),
+        'SELECT region, math::sum(totals.net) as sum_totals_net FROM orders GROUP BY region',
+      )
+    })
+  })
 })
 
 describe('query() factory function', () => {
