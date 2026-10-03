@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **The query builder's aggregates emitted SQL-style calls SurrealDB refuses.** `count()`, `sum()`, `avg()`, `min()`, and `max()` on `ReadQL` (what `client.query(...)` returns) and on `AggregationQueryBuilder` rendered `COUNT(*)`, `SUM(f)`, `AVG(f)`, `MIN(f)`, and `MAX(f)`. SurrealQL has none of these: `COUNT(*)` is a parse error because the parser takes no `*` argument, and `SUM` / `AVG` / `MIN` / `MAX` are not function names (`Invalid function/constant path`), so every query that used one of these methods failed before it ran. A row count now renders `count()`, a field count renders `count(field)` (the rows where that field is truthy), and the others render `math::sum(f)`, `math::mean(f)`, `math::min(f)`, and `math::max(f)`. The column aliases are unchanged (`count`, `sum_<field>`, `avg_<field>`, `min_<field>`, `max_<field>`), and `count('*')` is still accepted and renders `count()`.
+
+  The aggregate calls inside the `having(...)` examples (the JSDoc, `docs/queries.md`, `docs/examples/index.md`, and `examples/`) used the same SQL spellings and are corrected the same way.
+
 ## [1.8.0] - 2026-08-12
 
 ### Added

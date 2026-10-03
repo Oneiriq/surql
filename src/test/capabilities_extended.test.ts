@@ -74,18 +74,25 @@ class TestPaginationBuilder<R extends { id: RecordId }, T> extends PaginationQue
 
 describe('AggregationQueryBuilder', () => {
   describe('count()', () => {
-    it('should add COUNT(*) aggregation by default', () => {
+    it('should add a count() row count by default', () => {
       const builder = new TestAggregationBuilder(mockConnectionProvider, 'orders')
       builder.count()
       const fields = builder.testBuildAggregationFields()
-      assertEquals(fields, ['COUNT(*) as count'])
+      assertEquals(fields, ['count() as count'])
     })
 
-    it('should add COUNT(field) aggregation when field is given', () => {
+    it("should treat '*' as a row count and render count(), never COUNT(*)", () => {
+      const builder = new TestAggregationBuilder(mockConnectionProvider, 'orders')
+      builder.count('*')
+      const fields = builder.testBuildAggregationFields()
+      assertEquals(fields, ['count() as count'])
+    })
+
+    it('should add count(field) when field is given', () => {
       const builder = new TestAggregationBuilder(mockConnectionProvider, 'orders')
       builder.count('customer_id')
       const fields = builder.testBuildAggregationFields()
-      assertEquals(fields, ['COUNT(customer_id) as count'])
+      assertEquals(fields, ['count(customer_id) as count'])
     })
 
     it('should return this for chaining', () => {
@@ -101,11 +108,11 @@ describe('AggregationQueryBuilder', () => {
   })
 
   describe('sum()', () => {
-    it('should add SUM aggregation with alias', () => {
+    it('should add a math::sum() aggregation with alias', () => {
       const builder = new TestAggregationBuilder(mockConnectionProvider, 'orders')
       builder.sum('total_amount')
       const fields = builder.testBuildAggregationFields()
-      assertEquals(fields, ['SUM(total_amount) as sum_total_amount'])
+      assertEquals(fields, ['math::sum(total_amount) as sum_total_amount'])
     })
 
     it('should return this for chaining', () => {
@@ -120,11 +127,11 @@ describe('AggregationQueryBuilder', () => {
   })
 
   describe('avg()', () => {
-    it('should add AVG aggregation with alias', () => {
+    it('should add a math::mean() aggregation with alias', () => {
       const builder = new TestAggregationBuilder(mockConnectionProvider, 'orders')
       builder.avg('price')
       const fields = builder.testBuildAggregationFields()
-      assertEquals(fields, ['AVG(price) as avg_price'])
+      assertEquals(fields, ['math::mean(price) as avg_price'])
     })
 
     it('should return this for chaining', () => {
@@ -134,11 +141,11 @@ describe('AggregationQueryBuilder', () => {
   })
 
   describe('min()', () => {
-    it('should add MIN aggregation with alias', () => {
+    it('should add a math::min() aggregation with alias', () => {
       const builder = new TestAggregationBuilder(mockConnectionProvider, 'products')
       builder.min('price')
       const fields = builder.testBuildAggregationFields()
-      assertEquals(fields, ['MIN(price) as min_price'])
+      assertEquals(fields, ['math::min(price) as min_price'])
     })
 
     it('should return this for chaining', () => {
@@ -148,11 +155,11 @@ describe('AggregationQueryBuilder', () => {
   })
 
   describe('max()', () => {
-    it('should add MAX aggregation with alias', () => {
+    it('should add a math::max() aggregation with alias', () => {
       const builder = new TestAggregationBuilder(mockConnectionProvider, 'products')
       builder.max('order_date')
       const fields = builder.testBuildAggregationFields()
-      assertEquals(fields, ['MAX(order_date) as max_order_date'])
+      assertEquals(fields, ['math::max(order_date) as max_order_date'])
     })
 
     it('should return this for chaining', () => {
@@ -167,11 +174,22 @@ describe('AggregationQueryBuilder', () => {
       builder.count().sum('revenue').avg('discount').min('price').max('price')
       const fields = builder.testBuildAggregationFields()
       assertEquals(fields.length, 5)
-      assertEquals(fields[0], 'COUNT(*) as count')
-      assertEquals(fields[1], 'SUM(revenue) as sum_revenue')
-      assertEquals(fields[2], 'AVG(discount) as avg_discount')
-      assertEquals(fields[3], 'MIN(price) as min_price')
-      assertEquals(fields[4], 'MAX(price) as max_price')
+      assertEquals(fields[0], 'count() as count')
+      assertEquals(fields[1], 'math::sum(revenue) as sum_revenue')
+      assertEquals(fields[2], 'math::mean(discount) as avg_discount')
+      assertEquals(fields[3], 'math::min(price) as min_price')
+      assertEquals(fields[4], 'math::max(price) as max_price')
+    })
+
+    it('should never render an SQL-style aggregate SurrealDB fails to parse', () => {
+      const builder = new TestAggregationBuilder(mockConnectionProvider, 'orders')
+      builder.count().count('*').count('paid').sum('revenue').avg('discount').min('price').max('price')
+      const rejected = [/COUNT\(/, /\(\*\)/, /(?<!::)\b(?:sum|avg|min|max)\(/i]
+      for (const field of builder.testBuildAggregationFields()) {
+        for (const pattern of rejected) {
+          assertEquals(pattern.test(field), false, `${field} matches ${pattern}`)
+        }
+      }
     })
   })
 

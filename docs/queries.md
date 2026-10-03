@@ -109,8 +109,8 @@ const highValue = await client.query('orders')
   .groupBy('customer_id')
   .sum('total')
   .count()
-  .having('SUM(total)', Op.GREATER_THAN, 1000)
-  .having('COUNT(*)', Op.GREATER_THAN, 5)
+  .having('math::sum(total)', Op.GREATER_THAN, 1000)
+  .having('count()', Op.GREATER_THAN, 5)
   .execute()
 ```
 

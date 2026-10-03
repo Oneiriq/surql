@@ -30,13 +30,13 @@ export abstract class HavingQueryBuilder<R extends { id: RecordId }, T> extends 
    * // Direct condition
    * const results = await query('orders')
    *   .groupBy('customer_id')
-   *   .having('COUNT(*) > 5')
+   *   .having('count() > 5')
    *   .execute()
    *
    * // Fluent style
    * const results = await query('sales')
    *   .groupBy('product_id')
-   *   .having('SUM(amount)', Op.GREATER_THAN, 1000)
+   *   .having('math::sum(amount)', Op.GREATER_THAN, 1000)
    *   .execute()
    */
   having(conditionOrField: string, operator?: Op, value?: unknown): this {
@@ -52,7 +52,7 @@ export abstract class HavingQueryBuilder<R extends { id: RecordId }, T> extends 
       }
       this.havingConditions.push(`${conditionOrField} ${operator} $${paramName}`)
     } else {
-      // Direct condition: having('COUNT(*) > 10')
+      // Direct condition: having('count() > 10')
       this.validateHavingCondition(conditionOrField)
       this.havingConditions.push(conditionOrField)
     }

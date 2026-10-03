@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertRejects } from '@std/assert'
-import { afterAll, afterEach, beforeAll, describe, it } from '@std/testing/bdd'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, it } from '@std/testing/bdd'
 import { RecordId } from 'surrealdb'
 import { SurQLClient } from '../client.ts'
 import { deployToEnvironments, MigrationCoordinator } from '../orchestration/coordinator.ts'
@@ -134,6 +134,63 @@ describe('SurQLClient: query()', () => {
   it('should return empty array when no records match', async () => {
     const results = await client.query<UserRecord>('sq_users').where({ name: 'Nonexistent' }).execute()
     assertEquals(results.length, 0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// client.query() aggregations
+// ---------------------------------------------------------------------------
+
+interface OrderRecord {
+  id: RecordId
+  cat: string
+  amount: number
+  paid: boolean
+}
+
+// Grouped rows carry no `id`, so they are mapped as-is rather than through the
+// default RecordId normalisation.
+const asGroupRow = (row: OrderRecord): Record<string, unknown> => ({ ...row })
+
+describe('SurQLClient: query() aggregations', () => {
+  beforeEach(async () => {
+    const db = await client.getConnection()
+    await db.query(`CREATE sa_orders:o1 SET cat = 'a', amount = 10, paid = true`)
+    await db.query(`CREATE sa_orders:o2 SET cat = 'a', amount = 20, paid = false`)
+    await db.query(`CREATE sa_orders:o3 SET cat = 'b', amount = 5, paid = true`)
+  })
+
+  afterEach(async () => {
+    await cleanTable('sa_orders')
+  })
+
+  it('should execute count() and the math:: aggregates per group', async () => {
+    const rows = await client.query<OrderRecord, Record<string, unknown>>('sa_orders')
+      .map(asGroupRow)
+      .groupBy('cat')
+      .count()
+      .sum('amount')
+      .avg('amount')
+      .min('amount')
+      .max('amount')
+      .execute()
+
+    const byCat = Object.fromEntries(rows.map((row) => [row.cat, row]))
+    assertEquals(byCat, {
+      a: { cat: 'a', count: 2, sum_amount: 30, avg_amount: 15, min_amount: 10, max_amount: 20 },
+      b: { cat: 'b', count: 1, sum_amount: 5, avg_amount: 5, min_amount: 5, max_amount: 5 },
+    })
+  })
+
+  it('should count only truthy values with count(field)', async () => {
+    const rows = await client.query<OrderRecord, Record<string, unknown>>('sa_orders')
+      .map(asGroupRow)
+      .groupBy('cat')
+      .count('paid')
+      .execute()
+
+    const byCat = Object.fromEntries(rows.map((row) => [row.cat, row.count]))
+    assertEquals(byCat, { a: 1, b: 1 })
   })
 })
 

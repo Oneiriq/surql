@@ -199,27 +199,27 @@ describe('HavingQueryBuilder', () => {
   describe('having()', () => {
     it('should add HAVING condition with direct string', () => {
       const builder = new TestHavingQueryBuilder(mockConnectionProvider, testTable)
-      const result = builder.having('COUNT(*) > 5')
+      const result = builder.having('count() > 5')
 
       assertEquals(result, builder) // Should return this for chaining
       assert(builder.hasHaving())
-      assertEquals(builder.testGetHavingConditions(), ['COUNT(*) > 5'])
+      assertEquals(builder.testGetHavingConditions(), ['count() > 5'])
     })
 
     it('should add HAVING condition with fluent style', () => {
       const builder = new TestHavingQueryBuilder(mockConnectionProvider, testTable)
-      const result = builder.having('SUM(amount)', Op.GREATER_THAN, 1000)
+      const result = builder.having('math::sum(amount)', Op.GREATER_THAN, 1000)
 
       assertEquals(result, builder)
       assert(builder.hasHaving())
       // Should include parameter binding
-      assert(builder.testGetHavingConditions()[0].includes('SUM(amount) > $h0'))
+      assert(builder.testGetHavingConditions()[0].includes('math::sum(amount) > $h0'))
     })
 
     it('should support multiple HAVING conditions', () => {
       const builder = new TestHavingQueryBuilder(mockConnectionProvider, testTable)
-      builder.having('COUNT(*) > 5')
-      builder.having('AVG(score)', Op.GREATER_THAN_OR_EQUAL, 75)
+      builder.having('count() > 5')
+      builder.having('math::mean(score)', Op.GREATER_THAN_OR_EQUAL, 75)
 
       assertEquals(builder.testGetHavingConditions().length, 2)
     })
@@ -238,9 +238,9 @@ describe('HavingQueryBuilder', () => {
       const builder = new TestHavingQueryBuilder(mockConnectionProvider, testTable)
 
       assertThrows(
-        () => builder.having('COUNT(*) > 5; DROP TABLE users'),
+        () => builder.having('count() > 5; DROP TABLE users'),
         Error,
-        'Dangerous SQL pattern in HAVING condition matched: /;.*(?:union|select|insert|update|delete|drop)/i in input: "COUNT(*) > 5; DROP TABLE users"',
+        'Dangerous SQL pattern in HAVING condition matched: /;.*(?:union|select|insert|update|delete|drop)/i in input: "count() > 5; DROP TABLE users"',
       )
     })
 
@@ -257,11 +257,11 @@ describe('HavingQueryBuilder', () => {
 
     it('should build correct HAVING clause', () => {
       const builder = new TestHavingQueryBuilder(mockConnectionProvider, testTable)
-      builder.having('COUNT(*) > 5')
-      builder.having('AVG(score) >= 75')
+      builder.having('count() > 5')
+      builder.having('math::mean(score) >= 75')
 
       const clause = builder.testBuildHavingClause()
-      assertEquals(clause, ' HAVING COUNT(*) > 5 AND AVG(score) >= 75')
+      assertEquals(clause, ' HAVING count() > 5 AND math::mean(score) >= 75')
     })
 
     it('should return empty clause when no HAVING conditions', () => {
@@ -275,7 +275,7 @@ describe('HavingQueryBuilder', () => {
   describe('clearHaving()', () => {
     it('should clear all HAVING conditions', () => {
       const builder = new TestHavingQueryBuilder(mockConnectionProvider, testTable)
-      builder.having('COUNT(*) > 5')
+      builder.having('count() > 5')
 
       assert(builder.hasHaving())
       const result = builder.clearHaving()
@@ -294,7 +294,7 @@ describe('HavingQueryBuilder', () => {
 
     it('should return true when HAVING conditions exist', () => {
       const builder = new TestHavingQueryBuilder(mockConnectionProvider, testTable)
-      builder.having('COUNT(*) > 5')
+      builder.having('count() > 5')
       assert(builder.hasHaving())
     })
   })
@@ -397,7 +397,7 @@ describe('Query Builder Integration Tests', () => {
           mockConnectionProvider,
           'orders',
         )
-        builder.having('COUNT(*) > 20')
+        builder.having('count() > 20')
 
         const results = await builder.execute()
 
@@ -423,7 +423,7 @@ describe('Query Builder Integration Tests', () => {
           mockConnectionProvider,
           'orders',
         )
-        builder.having('SUM(amount)', Op.GREATER_THAN, 10000)
+        builder.having('math::sum(amount)', Op.GREATER_THAN, 10000)
 
         const results = await builder.execute()
 
@@ -613,7 +613,7 @@ describe('Aggregation function support', () => {
         groupBuilder.groupBy('region')
 
         const havingBuilder = new TestHavingQueryBuilder(mockConnectionProvider, 'sales')
-        havingBuilder.having('COUNT(*)', Op.GREATER_THAN, 100)
+        havingBuilder.having('count()', Op.GREATER_THAN, 100)
 
         // Test both builders work independently
         const groupResults = await groupBuilder.execute()
@@ -731,9 +731,9 @@ describe('Error handling and edge cases', () => {
       const builder = new TestHavingQueryBuilder(mockConnectionProvider, testTable)
 
       assertThrows(
-        () => builder.having('COUNT(*) > 5 AND 1=1; DROP TABLE users'),
+        () => builder.having('count() > 5 AND 1=1; DROP TABLE users'),
         Error,
-        'Dangerous SQL pattern in HAVING condition matched: /;.*(?:union|select|insert|update|delete|drop)/i in input: "COUNT(*) > 5 AND 1=1; DROP TABLE users"',
+        'Dangerous SQL pattern in HAVING condition matched: /;.*(?:union|select|insert|update|delete|drop)/i in input: "count() > 5 AND 1=1; DROP TABLE users"',
       )
     })
 
